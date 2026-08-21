@@ -80,6 +80,15 @@ caught it was `reviewer`, not a tool.
 State lives in `.mini-vise.json` in the working directory (override with
 `MINI_VISE_STATE`). No database, no config.
 
+## Use it
+
+```
+/mini-vise:run <what to build or fix>
+```
+
+One entry point. It writes the spec, gets you to approve it, then walks the
+pipeline — delegating each node and routing findings back — until `done`.
+
 ## Install
 
 ```bash
