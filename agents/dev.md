@@ -1,6 +1,8 @@
 ---
 name: dev
 description: Implements the change — writes and edits the code for the task at hand. Use at the `dev` node of the mini-vise pipeline, before any testing or review.
+model: sonnet
+color: blue
 skills:
   - baseline
   - implementing
@@ -20,3 +22,7 @@ You implement. Nothing else.
 
 Report back: what you changed, file by file, and anything you deliberately
 left out.
+
+End with a verdict line: `verdict: pass` if the change is complete as
+briefed, `verdict: fail` if you could not finish it or the task turned out to
+be wrong. The orchestrator passes it straight to `advance`.

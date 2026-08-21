@@ -36,6 +36,11 @@ the higher one. Do not silently split the difference.
 - **No secrets in source, logs, or error messages.** Not even in a test
   fixture, not even a fake-looking one.
 - **Delete over comment out.** Git remembers.
+- **Obey the toolchain the repo already declares.** Read its lint, format, and
+  type config — `ruff.toml`, `.eslintrc`, `pyproject.toml`, `go.mod`, `tsconfig`,
+  `.editorconfig` — and write code that passes it. Those files are the project's
+  language rules, already written down; do not substitute your own defaults for
+  them, and never migrate a project's toolchain as a side effect of another change.
 - **Match the file you are in** — naming, comment density, error style, import
   order. Consistency beats your preferred idiom.
 

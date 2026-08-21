@@ -1,6 +1,6 @@
 {
   "name": "mini-vise",
   "description": "A three-node pipeline — dev, qa, review — and the three tools to walk it",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "mcpServers": "./.mcp.json"
 }

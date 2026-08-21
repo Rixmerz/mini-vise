@@ -17,94 +17,139 @@ DONE = "done"
 
 STATE = Path(os.environ.get("MINI_VISE_STATE") or Path.cwd() / ".mini-vise.json")
 
+BLANK = {"node": NODES[0], "lap": 1, "note": None, "note_for": None}
 
-def read() -> tuple[str, int]:
+
+def read() -> dict:
     try:
         s = json.loads(STATE.read_text())
-        return s["node"], int(s.get("lap", 1))
-    except (OSError, ValueError, KeyError, TypeError):
-        return NODES[0], 1
+        if not isinstance(s, dict) or s.get("node") not in [*NODES, DONE]:
+            return dict(BLANK)
+        return {**BLANK, **s, "lap": int(s.get("lap", 1))}
+    except (OSError, ValueError, TypeError):
+        return dict(BLANK)
 
 
-def write(node: str, lap: int) -> None:
-    STATE.write_text(json.dumps({"node": node, "lap": lap}))
+def write(s: dict) -> None:
+    STATE.write_text(json.dumps(s))
 
 
-def render(node: str, lap: int) -> str:
+def render(s: dict) -> str:
+    node, lap = s["node"], s["lap"]
     tail = f" (lap {lap})" if lap > 1 else ""
     if node == DONE:
         return f"node: done{tail} — pipeline finished. Call reset to start over."
     i = NODES.index(node)
     nxt = NODES[i + 1] if i + 1 < len(NODES) else DONE
-    return (
-        f"node: {node} ({i + 1}/{len(NODES)}){tail} — delegate to the `{node}` subagent.\n"
-        f"next: {nxt}. Call advance when {node} reports done, "
-        f"or back if it found something an earlier node has to fix."
+    out = [
+        f"node: {node} ({i + 1}/{len(NODES)}){tail} — delegate to the `{node}` subagent."
+    ]
+    if s.get("note") and s.get("note_for") == node:
+        out.append(f"open finding to fix here:\n{s['note']}")
+    out.append(
+        f"next: {nxt}. Call advance with the node's verdict — pass moves on, "
+        f"fail stays put so you can send it back."
     )
+    return "\n".join(out)
 
 
 TOOLS = [
     {
         "name": "status",
-        "description": "Where the mini-vise pipeline stands: current node and what comes next.",
+        "description": (
+            "Where the mini-vise pipeline stands: current node, which lap, and any open "
+            "finding an earlier node sent here to fix. Read this before briefing a subagent."
+        ),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "advance",
-        "description": "Move to the next node (dev -> qa -> review -> done). Call only after the current node's subagent reports done.",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "back",
         "description": (
-            "Send the pipeline back to an earlier node because the current one found a problem — "
-            "a failing test at qa, a blocking finding at review. Defaults to the previous node; "
-            "pass `to` to jump further back (e.g. review sends a code fix straight to dev). "
-            "Brief that node with what has to be fixed."
+            "Record the current node's verdict. verdict='pass' moves to the next node "
+            "(dev -> qa -> review -> done). verdict='fail' does NOT move — the node found "
+            "a problem, so call `back` to route it to whoever owns the fix. Report the "
+            "verdict the subagent actually gave; do not pass a node that reported failing "
+            "tests or a blocking finding."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "to": {"type": "string", "enum": NODES, "description": "Node to return to. Defaults to the previous one."}
+                "verdict": {
+                    "type": "string",
+                    "enum": ["pass", "fail"],
+                    "description": "What the node's subagent actually reported.",
+                }
             },
+            "required": ["verdict"],
+        },
+    },
+    {
+        "name": "back",
+        "description": (
+            "Send the pipeline back to the node that owns the fix, carrying what has to be "
+            "fixed. Use after a fail: a failing test at qa, a blocking finding at review. "
+            "`to` is required — pick the node that owns it, which for a code finding at "
+            "review is dev, not qa. The note is stored and shown to that node in `status`, "
+            "so the finding survives a compaction or a fresh session."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "enum": NODES, "description": "Node that owns the fix."},
+                "note": {
+                    "type": "string",
+                    "description": "What that node has to fix, specific enough to act on without re-reading the review.",
+                },
+            },
+            "required": ["to", "note"],
         },
     },
     {
         "name": "reset",
-        "description": "Send the pipeline back to the first node (dev).",
+        "description": "Send the pipeline back to the first node (dev), clearing the lap count and any open finding.",
         "inputSchema": {"type": "object", "properties": {}},
     },
 ]
 
 
 def call(name: str, args: dict) -> str:
-    node, lap = read()
+    s = read()
+    node = s["node"]
     if name == "status":
-        return render(node, lap)
+        return render(s)
     if name == "reset":
-        write(NODES[0], 1)
-        return render(NODES[0], 1)
+        write(dict(BLANK))
+        return render(BLANK)
     if name == "advance":
+        verdict = args.get("verdict")
+        if verdict not in ("pass", "fail"):
+            raise ValueError("advance needs verdict='pass' or verdict='fail'")
         if node == DONE:
             return "already done — call reset to start over."
+        if verdict == "fail":
+            return (
+                f"{node} failed — staying put.\n"
+                f"Call back(to=..., note=...) with the node that owns the fix. "
+                f"A code finding at review goes to dev, not qa."
+            )
         i = NODES.index(node)
         nxt = NODES[i + 1] if i + 1 < len(NODES) else DONE
-        write(nxt, lap)
-        return render(nxt, lap)
+        # the finding this node was sent back to fix is closed by its own pass
+        s.update(node=nxt, note=None, note_for=None)
+        write(s)
+        return render(s)
     if name == "back":
-        to = args.get("to")
-        if to is not None and to not in NODES:
-            raise ValueError(f"no such node: {to!r} — pick one of {', '.join(NODES)}")
-        if to is None:
-            i = len(NODES) - 1 if node == DONE else NODES.index(node) - 1
-            if i < 0:
-                return render(node, lap) + "\n(already at the first node — nothing to go back to.)"
-            to = NODES[i]
+        to, note = args.get("to"), (args.get("note") or "").strip()
+        if to not in NODES:
+            raise ValueError(f"back needs to=one of {', '.join(NODES)} — got {to!r}")
+        if not note:
+            raise ValueError("back needs a note saying what that node has to fix")
         # ponytail: a lap is any backward move, so the count is "times something
         # was sent back", not laps of the whole pipeline. Close enough to spot a
         # ping-pong; make it exact if anyone ever needs it to be.
-        write(to, lap + 1)
-        return render(to, lap + 1) + f"\nBrief `{to}` with exactly what {node} found."
+        s.update(node=to, lap=s["lap"] + 1, note=f"[from {node}] {note}", note_for=to)
+        write(s)
+        return render(s)
     raise ValueError(f"unknown tool: {name}")
 
 
@@ -118,7 +163,7 @@ def handle(req: dict) -> dict | None:
         return ok({
             "protocolVersion": req.get("params", {}).get("protocolVersion", "2025-06-18"),
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "mini-vise", "version": "0.1.0"},
+            "serverInfo": {"name": "mini-vise", "version": "0.2.0"},
         })
     if method == "tools/list":
         return ok({"tools": TOOLS})

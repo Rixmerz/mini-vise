@@ -15,30 +15,43 @@ gets through without a `back`.
 
 ## Agents
 
-| Agent | Does | Doesn't | Skills |
-|---|---|---|---|
-| `dev` | writes the code | write tests, review itself | `baseline`, `implementing` |
-| `qa` | writes and runs tests, reports real output | edit product code to go green | `baseline`, `testing` |
-| `reviewer` | adversarial review + debugging, read-only | fix anything | `baseline`, `reviewing` |
+| Agent | Does | Doesn't | Skills | Model |
+|---|---|---|---|---|
+| `dev` | writes the code | write tests, review itself | `baseline`, `implementing` | sonnet |
+| `qa` | writes and runs tests, reports real output | edit product code to go green | `baseline`, `testing` | sonnet |
+| `reviewer` | adversarial review + debugging, read-only | fix anything | `baseline`, `reviewing` | opus |
 
 `baseline` is the shared precedence rule and the language-agnostic standards.
 The role skill on top carries what that node actually has to get right —
 scope discipline, what makes a test worth writing, how to rank a finding
 without inventing a severity score.
 
+`reviewer` runs on the bigger model and the other two don't. Applying a guard
+and writing asserts is mechanical; noticing that a green test pins a bug is
+not.
+
 ## Tools
 
 The MCP server exposes exactly enough to walk the pipeline:
 
-- `status` — which node you're on, which lap, and what's next
-- `advance` — move to the next node (call it when the current agent reports done)
-- `back` — return to an earlier node to fix what this one found; defaults to the
-  previous node, takes `to` to jump further (`review` sends a code fix straight
-  to `dev`)
-- `reset` — back to `dev`, lap counter cleared
+- `status` — which node you're on, which lap, and any open finding sent here to fix
+- `advance` — takes the node's `verdict`. `pass` moves on; `fail` **stays put**
+- `back` — route the fix to the node that owns it, carrying a `note` of what to fix
+- `reset` — back to `dev`, lap and findings cleared
 
-The tools move the pointer and nothing else. They do not judge whether a node
-really finished — that stays the orchestrator's call, on the agent's report.
+Both arguments are required on purpose. `advance` will not move without a
+verdict, so walking past a "do not ship" has to be a deliberate lie rather than
+an oversight. `back` will not move without a note, so the finding lives in the
+state file instead of in whoever happened to be reading the review — it survives
+a compaction, a new session, and a different model picking the pipeline up.
+
+`fail` does not route on its own. It stops and makes you call `back(to=...)`,
+because the node that owns a fix is a judgement: a code finding at `review`
+belongs to `dev`, not to the node just behind it.
+
+What the tools still don't do is check whether a node told the truth. `qa` can
+report a pass on a suite that pins a bug green — that happened here, and what
+caught it was `reviewer`, not a tool.
 
 State lives in `.mini-vise.json` in the working directory (override with
 `MINI_VISE_STATE`). No database, no config.
