@@ -2,7 +2,7 @@
 import json, os, subprocess, sys, tempfile
 
 def rpc(lines, env):
-    p = subprocess.run([sys.executable, "server.py"], input="\n".join(json.dumps(l) for l in lines),
+    p = subprocess.run([sys.executable, "plugin/server.py"], input="\n".join(json.dumps(l) for l in lines),
                        capture_output=True, text=True, env=env)
     return [json.loads(l) for l in p.stdout.splitlines()]
 
@@ -55,7 +55,7 @@ def hook(payload, state_file, content=None):
     import pathlib
     if content is not None:
         pathlib.Path(state_file).write_text(content)
-    p = subprocess.run([sys.executable, "hook_stop.py"], input=json.dumps(payload),
+    p = subprocess.run([sys.executable, "plugin/hook_stop.py"], input=json.dumps(payload),
                        capture_output=True, text=True,
                        env={**os.environ, "MINI_VISE_STATE": state_file})
     assert p.returncode == 0, p.stderr

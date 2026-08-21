@@ -103,3 +103,11 @@ Needs `python3`. Nothing else — the server is stdlib-only.
 ```bash
 python3 test_server.py
 ```
+
+## Layout
+
+The plugin bundle is `plugin/`; the repo root holds the tests and this file.
+The nesting is not decoration — a marketplace `git-subdir` source needs a real
+subdirectory. Pointed at `"."` it clones the root files and silently drops
+every subdirectory, which installs "successfully" and leaves you a plugin with
+no agents, skills, or hooks.
