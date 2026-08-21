@@ -92,8 +92,8 @@ pipeline — delegating each node and routing findings back — until `done`.
 ## Install
 
 ```bash
-claude plugin marketplace add Rixmerz/mini-vise
-claude plugin install mini-vise@mini-vise
+claude plugin marketplace add Rixmerz/claude-plugins
+claude plugin install mini-vise@rixmerz
 ```
 
 Needs `python3`. Nothing else — the server is stdlib-only.

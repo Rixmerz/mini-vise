@@ -1,6 +1,6 @@
 {
-  "name": "mini-vise",
-  "description": "Marketplace for mini-vise \u2014 a spec-first pipeline and the four tools to walk it.",
+  "name": "mini-vise-dev",
+  "description": "Local development marketplace \u2014 lets a clone of this repo be installed as a plugin without going through the published index. For normal installs use the rixmerz marketplace (github.com/Rixmerz/claude-plugins), which is where mini-vise is published.",
   "owner": {
     "name": "Rixmerz"
   },
