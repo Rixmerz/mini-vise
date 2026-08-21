@@ -3,8 +3,15 @@
 Three subagents, three tools. That's the whole plugin.
 
 ```
-dev  ->  qa  ->  review  ->  done
+        +---------- back ----------+
+        v                          |
+      dev  ->  qa  ->  review  ->  done
 ```
+
+Forward is `advance`. When a node finds a problem an earlier node has to fix —
+a failing test at `qa`, a blocking finding at `review` — `back` returns there
+and the lap counter goes up. Nothing reaches `done` for good until a lap
+gets through without a `back`.
 
 ## Agents
 
@@ -23,9 +30,15 @@ without inventing a severity score.
 
 The MCP server exposes exactly enough to walk the pipeline:
 
-- `status` — which node you're on and what's next
+- `status` — which node you're on, which lap, and what's next
 - `advance` — move to the next node (call it when the current agent reports done)
-- `reset` — back to `dev`
+- `back` — return to an earlier node to fix what this one found; defaults to the
+  previous node, takes `to` to jump further (`review` sends a code fix straight
+  to `dev`)
+- `reset` — back to `dev`, lap counter cleared
+
+The tools move the pointer and nothing else. They do not judge whether a node
+really finished — that stays the orchestrator's call, on the agent's report.
 
 State lives in `.mini-vise.json` in the working directory (override with
 `MINI_VISE_STATE`). No database, no config.
