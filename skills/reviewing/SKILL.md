@@ -31,6 +31,10 @@ reviewed.
 - **Security** — injection into a query, shell, or template; authz checked in
   one path and not its sibling; a secret in source, log, or error text. Cite
   the CWE when you name one.
+- **Code in the diff the spec does not account for.** A working tree is rarely
+  clean; changes from an abandoned run, a stash, or another branch ride along.
+  Name every hunk the proposal does not explain and say so — do not assume it
+  belongs just because it is there and it compiles.
 - **Over-engineering** — an abstraction with one caller, a dependency that
   replaced ten lines, config for a constant, dead flexibility.
 

@@ -34,6 +34,12 @@ spec  ->  dev  ->  qa  ->  review  ->  done
 `spec` is the only node with no subagent, and that is deliberate: a plan the
 model wrote and the model approved is not a plan. A person has to see it.
 
+**This makes the pipeline interactive by design.** With nobody to ask, `spec`
+degrades into the model approving its own plan, which is the one thing the node
+exists to prevent. Running headless, either get the approval in the invoking
+prompt — stating what is pre-approved and what is not — or accept that `spec`
+is documentation, not a gate, and say so in the proposal.
+
 ## 1. Spec first — always
 
 Before any code, write the change down. **Never skip this because the change
@@ -68,6 +74,10 @@ Scale the spec to the change. A one-line fix gets three lines: what is wrong,
 what correct looks like, how you will know. A feature gets the full set. What
 never scales down is **the acceptance criteria** — if you cannot say what
 "done" looks like before starting, you are not ready to call `advance`.
+
+**Check the tree is clean before `advance`.** `git status` — uncommitted work
+from somewhere else will ride into the diff `review` reads and get shipped
+under your spec. Commit it, stash it, or say in the proposal that it is there.
 
 **Get the user to approve it.** Show them the proposal and ask. Their correction
 at this node costs one message; the same correction at `review` costs a full
