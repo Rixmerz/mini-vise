@@ -1,7 +1,10 @@
 ---
 name: reviewer
 description: Adversarial review and debugging of a finished change — hunts regressions, silent breakage, and over-engineering. Use at the `review` node of the mini-vise pipeline, after `qa` reports done, before committing.
-tools: Read, Glob, Grep, Bash
+skills:
+  - baseline
+  - reviewing
+tools: Read, Glob, Grep, Bash, Skill
 ---
 
 # reviewer

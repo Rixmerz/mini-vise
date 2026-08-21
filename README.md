@@ -8,11 +8,16 @@ dev  ->  qa  ->  review  ->  done
 
 ## Agents
 
-| Agent | Does | Doesn't |
-|---|---|---|
-| `dev` | writes the code | write tests, review itself |
-| `qa` | writes and runs tests, reports real output | edit product code to go green |
-| `reviewer` | adversarial review + debugging, read-only | fix anything |
+| Agent | Does | Doesn't | Skills |
+|---|---|---|---|
+| `dev` | writes the code | write tests, review itself | `baseline`, `implementing` |
+| `qa` | writes and runs tests, reports real output | edit product code to go green | `baseline`, `testing` |
+| `reviewer` | adversarial review + debugging, read-only | fix anything | `baseline`, `reviewing` |
+
+`baseline` is the shared precedence rule and the language-agnostic standards.
+The role skill on top carries what that node actually has to get right —
+scope discipline, what makes a test worth writing, how to rank a finding
+without inventing a severity score.
 
 ## Tools
 
@@ -28,8 +33,8 @@ State lives in `.mini-vise.json` in the working directory (override with
 ## Install
 
 ```bash
-git clone https://github.com/Rixmerz/mini-vise
-claude plugin install ./mini-vise
+claude plugin marketplace add Rixmerz/mini-vise
+claude plugin install mini-vise@mini-vise
 ```
 
 Needs `python3`. Nothing else — the server is stdlib-only.

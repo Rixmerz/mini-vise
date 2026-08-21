@@ -1,0 +1,15 @@
+{
+  "name": "mini-vise",
+  "description": "Marketplace for mini-vise — three subagents and the three tools to walk between them.",
+  "owner": {
+    "name": "Rixmerz"
+  },
+  "plugins": [
+    {
+      "name": "mini-vise",
+      "source": "./",
+      "description": "Three subagents (dev/qa/reviewer) and three tools to walk between them",
+      "version": "0.1.0"
+    }
+  ]
+}

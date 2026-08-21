@@ -1,7 +1,10 @@
 ---
 name: dev
 description: Implements the change — writes and edits the code for the task at hand. Use at the `dev` node of the mini-vise pipeline, before any testing or review.
-tools: Read, Write, Edit, Glob, Grep, Bash
+skills:
+  - baseline
+  - implementing
+tools: Read, Write, Edit, Glob, Grep, Bash, Skill
 ---
 
 # dev
