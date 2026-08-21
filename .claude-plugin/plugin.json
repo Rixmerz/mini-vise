@@ -3,6 +3,5 @@
   "description": "Spec-first pipeline \u2014 you write the proposal, three subagents walk it: dev, qa, review",
   "version": "0.4.0",
   "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json",
-  "commands": "./commands"
+  "hooks": "./hooks/hooks.json"
 }
