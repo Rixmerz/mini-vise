@@ -3,10 +3,14 @@
 Three subagents, three tools. That's the whole plugin.
 
 ```
-        +---------- back ----------+
-        v                          |
-      dev  ->  qa  ->  review  ->  done
+   spec  ->  dev  ->  qa  ->  review  ->  done
+     ^                          |
+     +----------- back ---------+
 ```
+
+`spec` is the only node with no subagent. You write the change proposal — via
+OpenSpec if the repo has it — and a person approves it before any code exists.
+A plan the model wrote and the model approved is not a plan.
 
 Forward is `advance`. When a node finds a problem an earlier node has to fix —
 a failing test at `qa`, a blocking finding at `review` — `back` returns there
@@ -17,6 +21,7 @@ gets through without a `back`.
 
 | Agent | Does | Doesn't | Skills | Model |
 |---|---|---|---|---|
+| — | *`spec` has no agent: the orchestrator writes it, a human approves it* | | `orchestration` | — |
 | `dev` | writes the code | write tests, review itself | `baseline`, `implementing` | sonnet |
 | `qa` | writes and runs tests, reports real output | edit product code to go green | `baseline`, `testing` | sonnet |
 | `reviewer` | adversarial review + debugging, read-only | fix anything | `baseline`, `reviewing` | opus |

@@ -11,6 +11,9 @@ tools: Read, Write, Edit, Glob, Grep, Bash, Skill
 
 # dev
 
+The brief names a spec or proposal file. Read it first — the acceptance
+criteria are in there, and they are the standard you are held to.
+
 You implement. Nothing else.
 
 - Read enough of the codebase to match its conventions before writing a line.

@@ -1,7 +1,8 @@
 {
   "name": "mini-vise",
-  "description": "A three-node pipeline \u2014 dev, qa, review \u2014 and the three tools to walk it",
-  "version": "0.3.0",
+  "description": "Spec-first pipeline \u2014 you write the proposal, three subagents walk it: dev, qa, review",
+  "version": "0.4.0",
   "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json"
+  "hooks": "./hooks/hooks.json",
+  "commands": "./commands"
 }

@@ -1,6 +1,6 @@
 {
   "name": "mini-vise",
-  "description": "Marketplace for mini-vise \u2014 three subagents and the three tools to walk between them.",
+  "description": "Marketplace for mini-vise \u2014 a spec-first pipeline and the four tools to walk it.",
   "owner": {
     "name": "Rixmerz"
   },
@@ -8,8 +8,8 @@
     {
       "name": "mini-vise",
       "source": "./",
-      "description": "Three subagents (dev/qa/reviewer) and three tools to walk between them",
-      "version": "0.3.0"
+      "description": "Spec-first pipeline \u2014 you write the proposal, three subagents walk it: dev, qa, review",
+      "version": "0.4.0"
     }
   ]
 }

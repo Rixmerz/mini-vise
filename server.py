@@ -12,7 +12,8 @@ import os
 import sys
 from pathlib import Path
 
-NODES = ["dev", "qa", "review"]
+NODES = ["spec", "dev", "qa", "review"]
+HUMAN = "spec"  # the node with no subagent — the orchestrator writes it, a person approves it
 DONE = "done"
 
 STATE = Path(os.environ.get("MINI_VISE_STATE") or Path.cwd() / ".mini-vise.json")
@@ -41,9 +42,13 @@ def render(s: dict) -> str:
         return f"node: done{tail} — pipeline finished. Call reset to start over."
     i = NODES.index(node)
     nxt = NODES[i + 1] if i + 1 < len(NODES) else DONE
-    out = [
-        f"node: {node} ({i + 1}/{len(NODES)}){tail} — delegate to the `{node}` subagent."
-    ]
+    who = (
+        "write the change proposal yourself and get the user to approve it — "
+        "there is no subagent for this node, that is the point"
+        if node == HUMAN
+        else f"delegate to the `{node}` subagent"
+    )
+    out = [f"node: {node} ({i + 1}/{len(NODES)}){tail} — {who}."]
     if s.get("note") and s.get("note_for") == node:
         out.append(f"open finding to fix here:\n{s['note']}")
     out.append(
