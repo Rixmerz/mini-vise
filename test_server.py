@@ -56,3 +56,40 @@ def main():
         print("ok")
 
 main()
+
+
+def hook(payload, state_file, content=None):
+    import pathlib
+    if content is not None:
+        pathlib.Path(state_file).write_text(content)
+    p = subprocess.run([sys.executable, "hook_stop.py"], input=json.dumps(payload),
+                       capture_output=True, text=True,
+                       env={**os.environ, "MINI_VISE_STATE": state_file})
+    assert p.returncode == 0, p.stderr
+    return json.loads(p.stdout)
+
+
+def test_hook():
+    with tempfile.TemporaryDirectory() as d:
+        f = os.path.join(d, "s.json")
+
+        assert hook({}, f) == {}, "no state file: nothing to gate"
+
+        mid = json.dumps({"node": "qa", "lap": 2, "note": "[from review] fix the guard",
+                          "note_for": "qa"})
+        r = hook({}, f, mid)
+        assert r["decision"] == "block", r
+        assert "node: qa" in r["reason"] and "fix the guard" in r["reason"], r
+
+        # the escape hatch: a second stop is allowed through, warned not blocked
+        r = hook({"stop_hook_active": True}, f, mid)
+        assert "decision" not in r and "systemMessage" in r, r
+
+        assert hook({}, f, json.dumps({"node": "done", "lap": 1})) == {}, "done releases"
+        assert "decision" not in hook({}, f, "{ not json"), "corrupt state must not trap"
+        assert hook({}, f, json.dumps({"node": "bogus"})) == {}
+        assert hook("not a dict", f, mid)["decision"] == "block", "junk payload still gates"
+    print("hook ok")
+
+
+test_hook()

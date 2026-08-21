@@ -49,6 +49,25 @@ a compaction, a new session, and a different model picking the pipeline up.
 because the node that owns a fix is a judgement: a code finding at `review`
 belongs to `dev`, not to the node just behind it.
 
+## The loop closes itself
+
+One `Stop` hook. When the turn is about to end and the pipeline is not at
+`done`, it answers `decision: block` and hands back what `status` would say —
+node, lap, and the open finding. The session cannot end mid-pipeline, so the
+model re-enters with the brief instead of drifting off.
+
+The escape hatch is the other half, and it is not optional. The hook payload's
+`stop_hook_active` means "you already blocked this once"; on re-entry the hook
+warns and lets go. Blocking twice is how a session becomes impossible to end —
+[claude-code-harness](https://github.com/Chachamaru127/claude-code-harness)
+measured 12 consecutive fires before fixing exactly this. One nudge, then out
+of the way. Corrupt state also releases the session: a gate that cannot read
+its own state must not be able to trap you in it.
+
+This costs tokens. Re-entering the loop adds orchestrator turns, and the
+orchestrator is already about two thirds of a run's spend. It buys a pipeline
+that finishes.
+
 What the tools still don't do is check whether a node told the truth. `qa` can
 report a pass on a suite that pins a bug green — that happened here, and what
 caught it was `reviewer`, not a tool.

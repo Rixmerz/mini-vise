@@ -1,6 +1,6 @@
 {
   "name": "mini-vise",
-  "description": "Marketplace for mini-vise — three subagents and the three tools to walk between them.",
+  "description": "Marketplace for mini-vise \u2014 three subagents and the three tools to walk between them.",
   "owner": {
     "name": "Rixmerz"
   },
@@ -9,7 +9,7 @@
       "name": "mini-vise",
       "source": "./",
       "description": "Three subagents (dev/qa/reviewer) and three tools to walk between them",
-      "version": "0.2.0"
+      "version": "0.3.0"
     }
   ]
 }
