@@ -44,9 +44,12 @@ being silent.
   per flow.
 - SessionStart: `additionalContext` names every open flow.
 - PreCompact: `systemMessage` lists what to keep verbatim per open flow.
-- Corrupt/unparseable state: both still return `{}` silently (AC11 from
-  context-handoff carries over unchanged — this is the one thing that must
-  not regress).
+- Corrupt/unparseable state: both stay non-blocking — never `decision`, never
+  a node-specific claim. `hook_ctx.py` returns `{}`; `hook_stop.py` returns
+  `{"systemMessage": "...not gating."}`, which is its own pre-existing,
+  correct behavior, not a regression. The invariant carried over from
+  context-handoff's AC11 is "does not gate on unreadable state", not
+  byte-identical output between the two hooks.
 
 **d. Attribution outside `server.py`** (orchestration-only, no server change)
 - Every subagent spawned for a flow gets `name: "<node>-<slug>"` (e.g.
@@ -75,8 +78,10 @@ being silent.
    only silent once both are `done`; still one nudge per `stop_hook_active`,
    not per flow.
 10. SessionStart `additionalContext` names every open flow.
-11. Corrupt/unparseable state → both hooks return `{}` (regression guard on
-    the existing AC11).
+11. Corrupt/unparseable state → both hooks stay non-blocking (never
+    `decision`); `hook_ctx.py` returns `{}`, `hook_stop.py` keeps its own
+    pre-existing `systemMessage` behavior (regression guard on context-
+    handoff's AC11, not a claim the two hooks match byte-for-byte).
 12. A 0.5.0 single-slot state file loads as `{"flows": {"main": ...}}}` with
     no error.
 13. `test_hook_ctx.py`'s existing 15 tests are rewritten for the flows shape,

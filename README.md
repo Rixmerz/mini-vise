@@ -39,16 +39,23 @@ not.
 
 The MCP server exposes exactly enough to walk the pipeline:
 
-- `status` — which node you're on, which lap, and any open finding sent here to fix
-- `advance` — takes the node's `verdict`. `pass` moves on; `fail` **stays put**
-- `back` — route the fix to the node that owns it, carrying a `note` of what to fix
-- `reset` — back to `dev`, lap and findings cleared
+- `flow_start` — opens a named pipeline against a working directory. Two open
+  flows can't share a directory: a diff `review` reads has to trace to one flow.
+- `status` — which node a flow is on, which lap, and any open finding sent here
+  to fix. Omit `flow` to see every open flow at once.
+- `advance` — takes a `flow` and the node's `verdict`. `pass` moves on; `fail`
+  **stays put**
+- `back` — takes a `flow`, routes the fix to the node that owns it, carrying a
+  `note` of what to fix
+- `reset` — takes a `flow`, back to `dev`, lap and findings cleared
 
-Both arguments are required on purpose. `advance` will not move without a
-verdict, so walking past a "do not ship" has to be a deliberate lie rather than
-an oversight. `back` will not move without a note, so the finding lives in the
-state file instead of in whoever happened to be reading the review — it survives
-a compaction, a new session, and a different model picking the pipeline up.
+`flow` is required on every one of these — never inferred, never defaulted —
+so applying one flow's verdict to another can't happen by omission. `advance`
+also will not move without a verdict, so walking past a "do not ship" has to be
+a deliberate lie rather than an oversight. `back` will not move without a note,
+so the finding lives in the state file instead of in whoever happened to be
+reading the review — it survives a compaction, a new session, and a different
+model picking the pipeline up.
 
 `fail` does not route on its own. It stops and makes you call `back(to=...)`,
 because the node that owns a fix is a judgement: a code finding at `review`
@@ -78,7 +85,7 @@ report a pass on a suite that pins a bug green — that happened here, and what
 caught it was `reviewer`, not a tool.
 
 State lives in `.mini-vise.json` in the working directory (override with
-`MINI_VISE_STATE`). No database, no config.
+`MINI_VISE_STATE`), one entry per flow. No database, no config.
 
 ## Use it
 

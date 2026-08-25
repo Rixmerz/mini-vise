@@ -40,6 +40,16 @@ exists to prevent. Running headless, either get the approval in the invoking
 prompt — stating what is pre-approved and what is not — or accept that `spec`
 is documentation, not a gate, and say so in the proposal.
 
+**Every pipeline is a named flow.** One task, one flow: `flow_start(slug,
+dir=...)` opens it against the directory the change lives in, and `status`,
+`advance`, `back`, `reset` all take that `flow` slug from then on — required,
+never inferred, so a verdict can't land on the wrong task by omission. Running
+two flows at once needs two directories (a `git worktree` per flow); the
+server refuses `flow_start` outright if `dir` collides with another flow still
+open, because a `review` reading one diff can't attribute it to two tasks.
+Single-flow work still needs a slug — pick one and use it throughout, there is
+no default.
+
 ## 1. Spec first — always
 
 Before any code, write the change down. **Never skip this because the change
