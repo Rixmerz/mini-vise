@@ -18,7 +18,7 @@ DONE = "done"
 
 STATE = Path(os.environ.get("MINI_VISE_STATE") or Path.cwd() / ".mini-vise.json")
 
-BLANK = {"node": NODES[0], "lap": 1, "note": None, "note_for": None}
+BLANK = {"node": NODES[0], "lap": 1, "note": None, "note_for": None, "spec_path": None, "evidence": None}
 
 
 def read() -> dict:
@@ -49,6 +49,10 @@ def render(s: dict) -> str:
         else f"delegate to the `{node}` subagent"
     )
     out = [f"node: {node} ({i + 1}/{len(NODES)}){tail} — {who}."]
+    if s.get("spec_path"):
+        out.append(f"spec: {s['spec_path']}")
+    if node == "review" and s.get("evidence"):
+        out.append(f"qa evidence:\n{s['evidence']}")
     if s.get("note") and s.get("note_for") == node:
         out.append(f"open finding to fix here:\n{s['note']}")
     out.append(
@@ -83,7 +87,15 @@ TOOLS = [
                     "type": "string",
                     "enum": ["pass", "fail"],
                     "description": "What the node's subagent actually reported.",
-                }
+                },
+                "spec_path": {
+                    "type": "string",
+                    "description": "Path to the spec — set when leaving the `spec` node, ignored elsewhere.",
+                },
+                "evidence": {
+                    "type": "string",
+                    "description": "Command run + its real output, verbatim. Required for verdict='pass' at node `qa`.",
+                },
             },
             "required": ["verdict"],
         },
@@ -137,12 +149,27 @@ def call(name: str, args: dict) -> str:
                 f"Call back(to=..., note=...) with the node that owns the fix. "
                 f"A code finding at review goes to dev, not qa."
             )
+        evidence = args.get("evidence")
+        if node == "qa" and not (evidence and evidence.strip()):
+            raise ValueError("advance needs evidence at node 'qa' — command run + its real output, verbatim")
         i = NODES.index(node)
         nxt = NODES[i + 1] if i + 1 < len(NODES) else DONE
         # the finding this node was sent back to fix is closed by its own pass
         s.update(node=nxt, note=None, note_for=None)
+        if node == "spec" and args.get("spec_path"):
+            s["spec_path"] = args["spec_path"]
+        if node == "qa":
+            s["evidence"] = evidence
         write(s)
-        return render(s)
+        out = render(s)
+        if nxt == DONE:
+            handoff = ["\n"]
+            if s.get("spec_path"):
+                handoff.append(f"spec: {s['spec_path']}")
+            handoff.append(f"qa evidence:\n{s.get('evidence')}")
+            handoff.append(f"context can be drained now — state in {STATE} restores this")
+            out += "\n".join(handoff)
+        return out
     if name == "back":
         to, note = args.get("to"), (args.get("note") or "").strip()
         if to not in NODES:

@@ -20,7 +20,10 @@ is finished and context can be drained.
 **b. SessionStart hook** (`plugin/hook_ctx.py`, new)
 - Fires on `source` in {`compact`, `resume`, `startup`}. Node not in NODES
   (done/absent/unreadable) => `{}`, silent.
-- Otherwise emits `{"systemMessage": "[mini-vise] pipeline open.\n" + render(read())}`.
+- Otherwise emits `{"hookSpecificOutput": {"hookEventName": "SessionStart",
+  "additionalContext": "[mini-vise] pipeline open.\n" + render(read())}}`.
+  `systemMessage` is a human-facing notice and never reaches model context —
+  wrong field defeats the purpose. Reference: vise `src/vise/hooks/session_restore.py`.
 
 **c. PreCompact hook** (same file, branch on `hook_event_name`)
 - Node not in NODES => `{}`.
@@ -42,9 +45,10 @@ entry, same `python3 "${CLAUDE_PLUGIN_ROOT}/hook_ctx.py"` shape.
 3. With evidence => moves to `review`; `status` there shows the evidence verbatim.
 4. `reset` clears spec_path + evidence.
 5. State file written by 0.4.1 (no new keys) loads without error.
-6. hook_ctx SessionStart on open pipeline => systemMessage containing the node;
+6. hook_ctx SessionStart on open pipeline => `hookSpecificOutput.additionalContext` containing the node;
    on `done` / no state file => `{}`.
-7. hook_ctx PreCompact on open pipeline => systemMessage, never `decision`.
+7. hook_ctx PreCompact on open pipeline => `systemMessage`, never `decision`.
+11. Corrupt state JSON => hook silent, matching hook_stop.py. Never assert a node read() invented.
 8. Malformed stdin / unreadable state => `{}`, exit 0. Hook never raises.
 9. `advance` to done => output contains spec path, evidence, drain line.
 10. Existing `test_server.py` still passes.

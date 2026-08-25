@@ -20,9 +20,12 @@ def main():
         step(lambda t, e: t.startswith("node: spec (1/4)") and "no subagent" in t, "status")
         step(lambda t, e: e and "verdict" in t, "advance")                    # verdict required
         step(lambda t, e: e, "advance", verdict="maybe")                      # and must be valid
-        step(lambda t, e: t.startswith("node: dev") and "delegate" in t, "advance", **P)
+        step(lambda t, e: t.startswith("node: dev") and "delegate" in t, "advance",
+             verdict="pass", spec_path="docs/x.md")
+        step(lambda t, e: "spec: docs/x.md" in t, "status")
         step(lambda t, e: t.startswith("node: qa"), "advance", **P)
-        step(lambda t, e: t.startswith("node: review"), "advance", **P)
+        step(lambda t, e: e and "evidence" in t, "advance", **P)                # evidence required at qa
+        step(lambda t, e: t.startswith("node: review"), "advance", verdict="pass", evidence="pytest -q\n1 passed")
         step(lambda t, e: not e and "staying put" in t, "advance", verdict="fail")
         step(lambda t, e: t.startswith("node: review"), "status")             # fail did not move
         step(lambda t, e: e and "note" in t, "back", to="dev")                # note required
@@ -33,8 +36,10 @@ def main():
         step(lambda t, e: "[from review]" not in t, "advance", **P)           # a pass closes it
         step(lambda t, e: "[from review]" not in t, "status")                 # and it stays closed
         step(lambda t, e: t.startswith("node: qa"), "advance", **P)
-        step(lambda t, e: t.startswith("node: review"), "advance", **P)
-        step(lambda t, e: t.startswith("node: done") and "lap 2" in t, "advance", **P)
+        step(lambda t, e: t.startswith("node: review"), "advance", verdict="pass", evidence="pytest -q\n2 passed")
+        step(lambda t, e: (t.startswith("node: done") and "lap 2" in t
+                            and "qa evidence:\npytest -q\n2 passed" in t and "context can be drained now" in t),
+             "advance", **P)
         step(lambda t, e: "already done" in t, "advance", **P)
         step(lambda t, e: t.startswith("node: spec") and "lap" not in t, "reset")
         step(lambda t, e: "already at the first node" not in t and e, "nope")
