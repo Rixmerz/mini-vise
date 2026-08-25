@@ -1,5 +1,7 @@
 # mini-vise
 
+![mini-vise mascot](docs/images/mascot.png)
+
 Three subagents, three tools. That's the whole plugin.
 
 ```
