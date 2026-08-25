@@ -49,3 +49,30 @@ the higher one. Do not silently split the difference.
 State what you did, what you did not do, and what you are unsure about. A
 report that hides a skipped step is worse than a report of a failure. Never
 claim something passed unless you ran it and read the output.
+
+## Wire style — reports back to the orchestrator
+
+Your report is machine-to-machine. Compress it: drop articles, filler,
+pleasantries, hedging, narration of what you did on the way, decorative tables
+and emoji. Fragments are fine. Pattern: `[thing] [action] [reason].`
+
+```
+auth.py:41 added rate limit, spec AC3. tests untouched. skipped redis backend
+— in-memory covers single process.
+verdict: pass
+```
+
+Never compress: the `verdict:` line, file paths, identifiers, quoted command
+output, error text, and any security or data-loss warning. Those are evidence
+and go verbatim. Never abbreviate a word to save characters — `cfg`, `impl`,
+`fn` cost the same tokens as the full word and read worse.
+
+Same style for **anything you write that only another agent reads**: the notes
+you leave in the run, findings, task lists, scratch files in the change dir.
+Compressed, evidence verbatim.
+
+Two things stay normal prose, always:
+
+- **Commits, PR bodies, changelogs, README and docs.** Humans outside this run
+  read those, and they outlive it. Write them the way the repo writes them.
+- **Anything the user reads in the chat.**

@@ -70,6 +70,12 @@ the project. Write the same content into one markdown file the repo would
 accept — a `docs/` note, an issue body, a `CHANGES.md` entry. The point is that
 the intent lives on disk where the next session can read it, not in this chat.
 
+Write the spec compressed too — proposal, design, tasks, deltas, and every
+`back` note are read by subagents, not by strangers. Drop articles and filler,
+keep acceptance criteria, paths and identifiers exact. **Commits and PR bodies
+are the exception: those are for humans outside the run, so write them in full
+prose the repo's way.**
+
 Scale the spec to the change. A one-line fix gets three lines: what is wrong,
 what correct looks like, how you will know. A feature gets the full set. What
 never scales down is **the acceptance criteria** — if you cannot say what
@@ -93,6 +99,17 @@ Brief the subagent with:
 - **the path to the spec**, so it reads the criteria rather than guessing them;
 - the open finding from `status`, verbatim, if there is one;
 - nothing about how to do its job. The charter and its skills cover that.
+
+Write the brief on the wire, not in prose: drop articles, filler, hedging,
+and narration. Fragments fine. Quote the open finding verbatim — it is
+evidence, not prose. Same for paths, identifiers, and command output. Subagents
+report back the same way (see the `baseline` skill). What you write *to the
+user* stays normal prose.
+
+```
+implement openspec/changes/rate-limit/proposal.md. open finding from status:
+"429 returned but Retry-After missing (spec AC4)". repo conventions apply.
+```
 
 Then get out of the way. Do not read the files it is about to read, do not
 pre-solve the problem, do not "just check one thing first". That work is

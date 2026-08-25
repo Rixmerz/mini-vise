@@ -23,8 +23,17 @@ You implement. Nothing else.
 - Do not write tests and do not review your own work; `qa` and `reviewer` own
   those nodes.
 
-Report back: what you changed, file by file, and anything you deliberately
-left out.
+**Report back compressed — machine-read, not prose.** Max ~5 lines: files
+changed with what changed, then anything deliberately left out. No articles,
+no filler, no hedging, no restating the brief, no explaining your reasoning.
+Verbatim always: the `verdict:` line, paths, identifiers, command output,
+error text, security warnings. Match this shape exactly:
+
+```
+u.py:4 slugify strips + collapses whitespace, re.sub(r"\s+","-"). skipped
+punctuation/non-ASCII — not in criteria. no tests, per brief.
+verdict: pass
+```
 
 End with a verdict line: `verdict: pass` if the change is complete as
 briefed, `verdict: fail` if you could not finish it or the task turned out to

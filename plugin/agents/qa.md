@@ -26,6 +26,18 @@ You test. You do not implement features.
 Report back: the command you ran, its output verbatim, and any failure you
 could not explain.
 
+**Report is machine-read. Write it compressed — this is not optional and it
+is not a style preference; the orchestrator pays for every word.** Max ~8
+lines. No articles, no filler, no hedging, no restating the brief, no
+explaining your reasoning. Verbatim always: the `verdict:` line,
+paths, identifiers, command output, error text, security warnings. Example:
+
+```
+u.py:4 slugify strips + collapses whitespace, re.sub(r"\s+","-"). skipped
+punctuation/non-ASCII — not in criteria. no tests, per brief.
+verdict: pass
+```
+
 End with a verdict line: `verdict: pass` only if the suite is green and the
 new tests actually pin the change. Any failure, any test you had to skip —
 `verdict: fail`, and say which. The orchestrator passes it straight to
