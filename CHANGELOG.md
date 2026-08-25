@@ -1,5 +1,79 @@
 # Changelog
 
+## 0.8.0 — snapshots, and the D3 wedge
+
+Follow-on to 0.7.0's tier sweep, which closed with two non-blocking findings
+and a review-found wedge:
+
+- **`dev` committing its own work no longer wedges the flow.** The tree hash
+  D3 compares now includes `git rev-parse HEAD` alongside `git status
+  --porcelain`, so a `dev` that commits moves the hash even though the tree
+  itself goes clean. The block message no longer asserts "no change" as fact —
+  it names tree and `HEAD` as both unchanged.
+- **Every successful `flow_start`/`advance`/`back`/`reset`/`flow_close` now
+  snapshots the flow's `dir`** to a commit at
+  `refs/mini-vise/snapshots/<slug>` — one ref per flow, built through a
+  throwaway index so the real working tree, index, and `HEAD` are never
+  touched. `flow_close` snapshots before the entry is deleted, since closing
+  an open flow discards its finding. Content only: `.mini-vise.json` and
+  `.mini-vise.log` stay out via `.gitignore`, so a restore never brings the
+  flow state back. `status` names the ref once a snapshot exists. Degrades
+  silently on every failure, same contract as the run log: not a repo, `git`
+  unavailable, `dir` unset or missing, a repo with no commits yet. Recovery is
+  `git restore --source=refs/mini-vise/snapshots/<slug> .`, documented in the
+  README; no new tool.
+- `baseline/SKILL.md`'s report example was missing the `flow: <slug>` line
+  every charter requires, and the never-compress list didn't name it either —
+  fixed.
+
+## 0.7.0 — tier sweep: wired-back edges, a run log, packaging
+
+Rendering, wire style, and the version string had drifted from 0.6.0's
+multi-flow work; this pass wires them back and closes what §d of
+`docs/multi-flow.md` specced but never shipped:
+
+- `render()` now includes a `dir:` line for a flow that has one — both hooks'
+  text inherits it, so a compaction with two open flows can tell them apart
+  by tree, not just by slug.
+- `/mini-vise:run` now calls `flow_start` before any `advance`/`back`, matching
+  0.6.0's required `flow` argument.
+- `qa`/`reviewer` charters got their own report examples instead of `dev`'s.
+- All three charters' report block now leads with `flow: <slug>`, alongside
+  `verdict:` — the ambiguity `[flow: <slug>]` fixed on the outbound path, now
+  fixed inbound too.
+- `reset`'s tool description said "back to dev"; it lands on `spec`, and now
+  says so.
+- The `Stop` hook no longer blocks a flow parked at `spec` — that node's only
+  completion condition is a human approving the proposal, and blocking there
+  either burns a turn or pressures the model into approving its own plan. A
+  `systemMessage` names those flows instead; the hook still blocks on any
+  other open node.
+- `server.py`'s version was hardcoded `0.2.0` against a `0.6.1` plugin. A
+  single `VERSION` constant now backs `serverInfo` and matches
+  `plugin.json`/`marketplace.json`.
+- **`PreCompact` is gone.** Its only payload field is `custom_instructions`
+  and its only outbound channel is `systemMessage`, which Claude Code
+  documents as user-facing, not model context — it never did what it
+  claimed. `SessionStart` with `source: "compact"` already re-announces every
+  open flow after a compaction and is already wired.
+- **`flow_close(flow)`** — new tool. Removes a flow entirely, freeing its
+  slug and `dir` for reuse. Works on any flow, open or done; the response
+  names the node it was closed on.
+- **A run log.** Every successful `flow_start`/`advance`/`back`/`reset`/
+  `flow_close` call appends one JSONL line to `.mini-vise.log` (`status`
+  doesn't). Wrapped so a logging failure can never fail a tool call.
+- **`dev` can no longer pass without touching the tree.** `advance` records a
+  hash of `git status --porcelain` on entering `dev` and refuses
+  `verdict="pass"` there if the tree is byte-identical to that baseline —
+  the mechanical half of the honesty check, next to `qa`/`review`'s human
+  one. Degrades open (never blocks) when `dir` is unset, not a repo, `git`
+  isn't on PATH, or no baseline was recorded.
+- `LICENSE` (MIT) and a GitHub Actions workflow running both test suites on
+  push and PR — both were absent.
+- `orchestration` now states: every delta in a spec gets an acceptance
+  criterion, or it does not ship. `docs/multi-flow.md` §d described a change
+  with none, and it went unimplemented.
+
 ## 0.6.1
 
 Docs only. Adds this file, and folds the effort/model research from the

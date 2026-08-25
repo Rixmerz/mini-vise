@@ -1,3 +1,4 @@
 .mini-vise.json
+.mini-vise.log
 __pycache__/
 .pytest_cache/

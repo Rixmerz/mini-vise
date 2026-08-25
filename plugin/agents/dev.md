@@ -26,10 +26,12 @@ You implement. Nothing else.
 **Report back compressed — machine-read, not prose.** Max ~5 lines: files
 changed with what changed, then anything deliberately left out. No articles,
 no filler, no hedging, no restating the brief, no explaining your reasoning.
-Verbatim always: the `verdict:` line, paths, identifiers, command output,
-error text, security warnings. Match this shape exactly:
+Verbatim always: `flow: <slug>` as the first line, the `verdict:` line, paths,
+identifiers, command output, error text, security warnings. Match this shape
+exactly:
 
 ```
+flow: authz
 u.py:4 slugify strips + collapses whitespace, re.sub(r"\s+","-"). skipped
 punctuation/non-ASCII — not in criteria. no tests, per brief.
 verdict: pass

@@ -2,9 +2,17 @@
 """Stop hook: don't let the session end while any flow is mid-pipeline.
 
 Claude Code sends this hook a JSON payload when the turn is about to end. If
-any flow is not at `done`, we answer `decision: block` and hand back the same
-text `status` returns for every open flow — current node, lap, and any open
-finding — so the model re-enters with the brief instead of stopping.
+any flow is at a node other than `spec`, we answer `decision: block` and hand
+back the same text `status` returns for those flows — current node, lap, and
+any open finding — so the model re-enters with the brief instead of stopping.
+
+Flows parked at `spec` are not blocked: that node's only completion condition
+is a human approving the proposal, and there is nothing for the model to do
+while it waits. Blocking there either burns a turn or pressures the model into
+approving its own proposal — the exact failure `spec` exists to prevent. Those
+flows are surfaced through `systemMessage` instead, addressed to the person
+whose approval is pending. If every open flow is parked at `spec`, the hook
+does not block at all.
 
 The escape hatch matters as much as the gate: the payload's `stop_hook_active`
 means "you already blocked this once". Blocking again on re-entry is how a
@@ -33,10 +41,15 @@ def decide(payload: dict) -> dict:
     open_flows = server.open_flows(server.read())
     if not open_flows:
         return {}  # every flow done, or none exist
-    text = "\n\n".join(server.render(slug, s) for slug, s in sorted(open_flows.items()))
+    blocking = {slug: s for slug, s in open_flows.items() if s["node"] != server.HUMAN}
+    parked = {slug: s for slug, s in open_flows.items() if s["node"] == server.HUMAN}
+    if not blocking:
+        text = "\n\n".join(server.render(slug, s) for slug, s in sorted(parked.items()))
+        return {"systemMessage": f"[mini-vise] {len(parked)} flow(s) parked at spec, waiting on user approval.\n{text}"}
+    text = "\n\n".join(server.render(slug, s) for slug, s in sorted(blocking.items()))
     if payload.get("stop_hook_active"):
         return {"systemMessage": f"[mini-vise] stopping with open flows.\n{text}"}
-    return {"decision": "block", "reason": f"[mini-vise] {len(open_flows)} flow(s) not finished.\n{text}"}
+    return {"decision": "block", "reason": f"[mini-vise] {len(blocking)} flow(s) not finished.\n{text}"}
 
 
 def main() -> None:

@@ -7,20 +7,28 @@ ever need resources, prompts, or notifications.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
+
+VERSION = "0.8.0"
 
 NODES = ["spec", "dev", "qa", "review"]
 HUMAN = "spec"  # the node with no subagent — the orchestrator writes it, a person approves it
 DONE = "done"
 
 STATE = Path(os.environ.get("MINI_VISE_STATE") or Path.cwd() / ".mini-vise.json")
+LOG = STATE.with_suffix(".log")
 
 BLANK = {
     "node": NODES[0], "lap": 1, "note": None, "note_for": None,
-    "spec_path": None, "evidence": None, "dir": None,
+    "spec_path": None, "evidence": None, "dir": None, "tree": None,
 }
 
 
@@ -66,7 +74,10 @@ def render(slug: str, s: dict) -> str:
     node, lap = s["node"], s["lap"]
     tail = f" (lap {lap})" if lap > 1 else ""
     if node == DONE:
-        return f"[flow: {slug}] node: done{tail} — pipeline finished. Call reset(flow={slug!r}) to start over."
+        out = [f"[flow: {slug}] node: done{tail} — pipeline finished. Call reset(flow={slug!r}) to start over."]
+        if s.get("dir"):
+            out.append(f"dir: {s['dir']}")
+        return "\n".join(out)
     i = NODES.index(node)
     nxt = NODES[i + 1] if i + 1 < len(NODES) else DONE
     who = (
@@ -76,6 +87,8 @@ def render(slug: str, s: dict) -> str:
         else f"delegate to the `{node}` subagent"
     )
     out = [f"[flow: {slug}] node: {node} ({i + 1}/{len(NODES)}){tail} — {who}."]
+    if s.get("dir"):
+        out.append(f"dir: {s['dir']}")
     if s.get("spec_path"):
         out.append(f"spec: {s['spec_path']}")
     if node == "review" and s.get("evidence"):
@@ -92,6 +105,136 @@ def render(slug: str, s: dict) -> str:
 def unknown_flow(flow, flows: dict) -> str:
     valid = ", ".join(sorted(flows)) or "(none open — call flow_start first)"
     return f"flow={flow!r} is missing or unknown — valid slugs: {valid}"
+
+
+def tree_hash(d) -> str | None:
+    """Hash of `git status --porcelain` plus `git rev-parse HEAD` in `d`, or
+    None if it can't be computed.
+
+    HEAD is included (H1) so a `dev` that commits its work moves the hash even
+    though the tree itself goes clean — otherwise a commit is indistinguishable
+    from doing nothing and `advance` wedges.
+
+    None covers every degraded case on purpose (D3): no dir, git not on PATH,
+    `d` not a repo, or either subprocess errors or times out. The caller treats
+    None as "nothing to compare" rather than raising.
+    """
+    if not d:
+        return None
+    try:
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=d,
+            capture_output=True, text=True, timeout=10,
+        )
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=d,
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if status.returncode != 0:
+        return None
+    head_out = head.stdout if head.returncode == 0 else ""
+    return hashlib.sha256((status.stdout + head_out).encode()).hexdigest()
+
+
+def log_call(tool: str, flow: str, s: dict, verdict: str | None) -> None:
+    """Append one JSONL line for a successful mutating call. Never raises —
+    the log is a record, not a dependency (D2)."""
+    entry = {
+        "ts": time.time(), "flow": flow, "tool": tool,
+        "node": s["node"], "lap": s["lap"], "verdict": verdict,
+    }
+    try:
+        with open(LOG, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass
+
+
+def snapshot_ref_name(flow: str) -> str:
+    return f"refs/mini-vise/snapshots/{flow}"
+
+
+def snapshot(tool: str, flow: str, s: dict) -> None:
+    """Best-effort git snapshot of `s['dir']`'s working-tree content into
+    `refs/mini-vise/snapshots/<flow>` (I1). Runs after every successful
+    mutating call. Never raises and never touches the real index or HEAD —
+    it builds the commit through a throwaway `GIT_INDEX_FILE`, exactly the
+    plumbing in docs/snapshots.md §I1, so `git status --porcelain`, `git diff
+    --cached` and HEAD are byte-identical before and after (I3, verified by
+    hand). A snapshot failure must never fail the call, same contract as
+    log_call()."""
+    d = s.get("dir")
+    if not d:
+        return
+    # a throwaway dir + a filename inside it that doesn't exist yet — the
+    # `mktemp -u` semantics docs/snapshots.md §I1 calls for (name only; a
+    # real empty file is an invalid index), without tempfile.mktemp()'s
+    # known race
+    idx_dir = tempfile.mkdtemp()
+    idx = os.path.join(idx_dir, "index")
+    env = {**os.environ, "GIT_INDEX_FILE": idx}
+    try:
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=d,
+            capture_output=True, text=True, timeout=10,
+        )
+        if head.returncode != 0:
+            return  # not a repo, or no commits yet — commit-tree would have no parent
+        add = subprocess.run(
+            ["git", "add", "-A"], cwd=d, env=env,
+            capture_output=True, text=True, timeout=10,
+        )
+        if add.returncode != 0:
+            return
+        tree = subprocess.run(
+            ["git", "write-tree"], cwd=d, env=env,
+            capture_output=True, text=True, timeout=10,
+        )
+        if tree.returncode != 0:
+            return
+        msg = f"mini-vise snapshot: flow={flow} tool={tool} node={s['node']} lap={s['lap']}"
+        commit = subprocess.run(
+            ["git", "commit-tree", tree.stdout.strip(), "-p", head.stdout.strip(), "-m", msg],
+            cwd=d, capture_output=True, text=True, timeout=10,
+        )
+        if commit.returncode != 0:
+            return
+        subprocess.run(
+            ["git", "update-ref", "--create-reflog", "-m", msg, snapshot_ref_name(flow), commit.stdout.strip()],
+            cwd=d, capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+    finally:
+        shutil.rmtree(idx_dir, ignore_errors=True)
+
+
+def snapshot_ref(flow: str, s: dict) -> str | None:
+    """The flow's snapshot ref if at least one snapshot exists there, else
+    None. Degrades silently like everything else here (I3/I4)."""
+    d = s.get("dir")
+    if not d:
+        return None
+    ref = snapshot_ref_name(flow)
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", ref], cwd=d,
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    return ref
+
+
+def render_with_snapshot(slug: str, s: dict) -> str:
+    """`render()` plus the snapshot ref line for `status` (I4)."""
+    out = render(slug, s)
+    ref = snapshot_ref(slug, s)
+    return f"{out}\nsnapshot: {ref}" if ref else out
 
 
 TOOLS = [
@@ -184,7 +327,20 @@ TOOLS = [
     },
     {
         "name": "reset",
-        "description": "Send a flow back to the first node (dev), clearing the lap count and any open finding.",
+        "description": "Send a flow back to the first node (spec), clearing the lap count and any open finding.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"flow": {"type": "string", "description": "Slug from flow_start."}},
+            "required": ["flow"],
+        },
+    },
+    {
+        "name": "flow_close",
+        "description": (
+            "Remove a flow entirely, freeing both its slug and its dir for reuse. Works on any "
+            "flow, open or done — closing an open one is explicit intent. The response names "
+            "the node it was on so a mistake is visible."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {"flow": {"type": "string", "description": "Slug from flow_start."}},
@@ -218,6 +374,8 @@ def call(name: str, args: dict) -> str:
                 )
         flows[slug] = {**BLANK, "dir": d}
         write(flows)
+        log_call("flow_start", slug, flows[slug], None)
+        snapshot("flow_start", slug, flows[slug])
         return render(slug, flows[slug])
 
     if name == "status":
@@ -225,12 +383,12 @@ def call(name: str, args: dict) -> str:
         if flow is not None:
             if flow not in flows:
                 raise ValueError(unknown_flow(flow, flows))
-            return render(flow, flows[flow])
+            return render_with_snapshot(flow, flows[flow])
         if not flows:
             return "no open flows — call flow_start(slug, dir) to begin."
-        return "\n\n".join(render(slug, flows[slug]) for slug in sorted(flows))
+        return "\n\n".join(render_with_snapshot(slug, flows[slug]) for slug in sorted(flows))
 
-    if name not in ("advance", "back", "reset"):
+    if name not in ("advance", "back", "reset", "flow_close"):
         raise ValueError(f"unknown tool: {name}")
 
     flow = args.get("flow")
@@ -239,9 +397,20 @@ def call(name: str, args: dict) -> str:
     s = flows[flow]
     node = s["node"]
 
+    if name == "flow_close":
+        # snapshot before deleting the entry — closing an open flow discards
+        # its finding, so this is the one most worth keeping (I1)
+        snapshot("flow_close", flow, s)
+        del flows[flow]
+        write(flows)
+        log_call("flow_close", flow, {"node": node, "lap": s["lap"]}, None)
+        return f"[flow: {flow}] closed — was at node: {node}. Slug and dir are free for a new flow_start."
+
     if name == "reset":
         flows[flow] = dict(BLANK, dir=s.get("dir"))
         write(flows)
+        log_call("reset", flow, flows[flow], None)
+        snapshot("reset", flow, flows[flow])
         return render(flow, flows[flow])
 
     if name == "advance":
@@ -249,8 +418,12 @@ def call(name: str, args: dict) -> str:
         if verdict not in ("pass", "fail"):
             raise ValueError("advance needs verdict='pass' or verdict='fail'")
         if node == DONE:
+            log_call("advance", flow, s, verdict)
+            snapshot("advance", flow, s)
             return f"[flow: {flow}] already done — call reset(flow={flow!r}) to start over."
         if verdict == "fail":
+            log_call("advance", flow, s, verdict)
+            snapshot("advance", flow, s)
             return (
                 f"[flow: {flow}] {node} failed — staying put.\n"
                 f"Call back(flow={flow!r}, to=..., note=...) with the node that owns the fix. "
@@ -259,6 +432,18 @@ def call(name: str, args: dict) -> str:
         evidence = args.get("evidence")
         if node == "qa" and not (evidence and evidence.strip()):
             raise ValueError("advance needs evidence at node 'qa' — command run + its real output, verbatim")
+        if node == "dev":
+            # D3: the one honesty check that is mechanical rather than another
+            # agent. Degrades silent-open (never blocks) when either side is
+            # unknowable — see tree_hash. Known gap, accepted: a dev that
+            # creates a file and deletes it again is refused too.
+            baseline, current = s.get("tree"), tree_hash(s.get("dir"))
+            if baseline is not None and current is not None and current == baseline:
+                raise ValueError(
+                    f"advance blocked at dev: {s.get('dir')} — tree and HEAD are both "
+                    f"unchanged since entering dev. A pass without a touched tree or a "
+                    f"commit is refused, not shipped."
+                )
         i = NODES.index(node)
         nxt = NODES[i + 1] if i + 1 < len(NODES) else DONE
         # the finding this node was sent back to fix is closed by its own pass
@@ -267,7 +452,11 @@ def call(name: str, args: dict) -> str:
             s["spec_path"] = args["spec_path"]
         if node == "qa":
             s["evidence"] = evidence
+        if nxt == "dev":  # entering dev — record the baseline D3 compares against
+            s["tree"] = tree_hash(s.get("dir"))
         write(flows)
+        log_call("advance", flow, s, verdict)
+        snapshot("advance", flow, s)
         out = render(flow, s)
         if nxt == DONE:
             handoff = ["\n"]
@@ -288,7 +477,11 @@ def call(name: str, args: dict) -> str:
         # was sent back", not laps of the whole pipeline. Close enough to spot a
         # ping-pong; make it exact if anyone ever needs it to be.
         s.update(node=to, lap=s["lap"] + 1, note=f"[from {node}] {note}", note_for=to)
+        if to == "dev":  # re-entering dev — re-record the baseline D3 compares against
+            s["tree"] = tree_hash(s.get("dir"))
         write(flows)
+        log_call("back", flow, s, None)
+        snapshot("back", flow, s)
         return render(flow, s)
 
 
@@ -302,7 +495,7 @@ def handle(req: dict) -> dict | None:
         return ok({
             "protocolVersion": req.get("params", {}).get("protocolVersion", "2025-06-18"),
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "mini-vise", "version": "0.2.0"},
+            "serverInfo": {"name": "mini-vise", "version": VERSION},
         })
     if method == "tools/list":
         return ok({"tools": TOOLS})

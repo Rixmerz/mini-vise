@@ -52,11 +52,11 @@ being silent.
   byte-identical output between the two hooks.
 
 **d. Attribution outside `server.py`** (orchestration-only, no server change)
-- Every subagent spawned for a flow gets `name: "<node>-<slug>"` (e.g.
-  `dev-authz`), so `SendMessage(to: "dev-authz")` resumes the right one by
-  name across a compaction, without recalling an agentId.
-- The three charters' wire-style report block gets a new non-compressible
-  first line: `flow: <slug>`, alongside `verdict:`.
+- Struck: `name: "<node>-<slug>"` at spawn is not expressible — the `Agent`
+  tool takes `description`, `isolation`, `model`, `prompt`, `subagent_type`,
+  no `name`. Shipped in tier-sweep instead: the three charters' wire-style
+  report block gets a new non-compressible first line, `flow: <slug>`,
+  alongside `verdict:`.
 
 ## Acceptance
 

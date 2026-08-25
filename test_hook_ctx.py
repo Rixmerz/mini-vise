@@ -1,17 +1,28 @@
 """Run: python3 test_hook_ctx.py
 
-Covers docs/context-handoff.md AC6 (SessionStart), AC7 (PreCompact), AC8
-(malformed input / unreadable state never raises) and docs/multi-flow.md
-AC10 (SessionStart additionalContext names every open flow), AC11
-(corrupt/unparseable state -> {} regression guard), AC13 (this file rewritten
-for the {"flows": {slug: ...}} shape, not the old single-slot one).
+Covers docs/context-handoff.md AC6 (SessionStart), AC8 (malformed input /
+unreadable state never raises) and docs/multi-flow.md AC10 (SessionStart
+additionalContext names every open flow), AC11 (corrupt/unparseable state ->
+{} regression guard), AC13 (this file rewritten for the {"flows": {slug:
+...}} shape, not the old single-slot one), and docs/tier-sweep.md C2
+(PreCompact removed 0.7.0 — decide() still answers {} for a stale hooks.json
+entry, never a systemMessage).
 """
+import contextlib
 import json
 import os
 import pathlib
 import subprocess
 import sys
 import tempfile
+
+
+@contextlib.contextmanager
+def tmpdir():
+    """A throwaway directory, real path resolved — the idiom test_server.py
+    uses in place of a hardcoded /tmp literal."""
+    with tempfile.TemporaryDirectory() as d:
+        yield os.path.realpath(d)
 
 
 def hook(payload_str, state_file=None, content=None, set_env=True):
@@ -40,10 +51,10 @@ def one_open_flow():
     return json.dumps({"flows": {"main": flow("qa", spec_path="docs/x.md")}})
 
 
-def two_open_flows():
+def two_open_flows(dir_a, dir_b):
     return json.dumps({"flows": {
-        "a": flow("qa", spec_path="docs/a.md", dir_="/tmp/a"),
-        "b": flow("dev", lap=2, note="[from qa] fix x", note_for="dev", dir_="/tmp/b"),
+        "a": flow("qa", spec_path="docs/a.md", dir_=dir_a),
+        "b": flow("dev", lap=2, note="[from qa] fix x", note_for="dev", dir_=dir_b),
     }})
 
 
@@ -95,10 +106,10 @@ def test_session_start_done_node_is_silent():
 
 
 def test_ac10_session_start_names_every_open_flow():
-    with tempfile.TemporaryDirectory() as d:
+    with tempfile.TemporaryDirectory() as d, tmpdir() as dir_a, tmpdir() as dir_b:
         f = os.path.join(d, "s.json")
         payload = json.dumps({"hook_event_name": "SessionStart", "source": "startup"})
-        r = hook(payload, f, two_open_flows())
+        r = hook(payload, f, two_open_flows(dir_a, dir_b))
         ctx = r.get("hookSpecificOutput", {}).get("additionalContext", "")
         assert "[flow: a]" in ctx and "[flow: b]" in ctx, ctx
         assert "node: qa" in ctx and "node: dev" in ctx, ctx
@@ -106,12 +117,12 @@ def test_ac10_session_start_names_every_open_flow():
 
 
 def test_ac10_session_start_omits_done_flow_from_open_list():
-    with tempfile.TemporaryDirectory() as d:
+    with tempfile.TemporaryDirectory() as d, tmpdir() as dir_a, tmpdir() as dir_b:
         f = os.path.join(d, "s.json")
         payload = json.dumps({"hook_event_name": "SessionStart", "source": "startup"})
         mixed = json.dumps({"flows": {
-            "a": flow("done", dir_="/tmp/a"),
-            "b": flow("dev", note="[from qa] fix x", note_for="dev", dir_="/tmp/b"),
+            "a": flow("done", dir_=dir_a),
+            "b": flow("dev", note="[from qa] fix x", note_for="dev", dir_=dir_b),
         }})
         r = hook(payload, f, mixed)
         ctx = r.get("hookSpecificOutput", {}).get("additionalContext", "")
@@ -119,39 +130,17 @@ def test_ac10_session_start_omits_done_flow_from_open_list():
         assert "[flow: b]" in ctx, ctx
 
 
-def test_precompact_open_pipeline_never_uses_decision():
-    with tempfile.TemporaryDirectory() as d:
+def test_c1_precompact_returns_empty_even_with_open_flows():
+    # C1: PreCompact is dropped from hooks.json (0.7.0); decide() keeps a
+    # branch only so a stale install's hooks.json entry degrades silently
+    # instead of emitting a systemMessage claiming to steer a summarizer
+    # through a channel (`systemMessage`) that never reached it. Feeding two
+    # open flows is the point: {} for the *right* reason, not because there
+    # was nothing to report.
+    with tempfile.TemporaryDirectory() as d, tmpdir() as dir_a, tmpdir() as dir_b:
         f = os.path.join(d, "s.json")
         payload = json.dumps({"hook_event_name": "PreCompact"})
-        r = hook(payload, f, one_open_flow())
-        assert "systemMessage" in r, r
-        assert "decision" not in r, r
-        assert "node: qa" in r["systemMessage"], r
-
-
-def test_precompact_lists_every_open_flow():
-    with tempfile.TemporaryDirectory() as d:
-        f = os.path.join(d, "s.json")
-        payload = json.dumps({"hook_event_name": "PreCompact"})
-        r = hook(payload, f, two_open_flows())
-        msg = r["systemMessage"]
-        assert "[flow: a]" in msg and "[flow: b]" in msg, msg
-
-
-def test_precompact_no_state_is_silent():
-    with tempfile.TemporaryDirectory() as d:
-        f = os.path.join(d, "s.json")  # never created
-        payload = json.dumps({"hook_event_name": "PreCompact"})
-        r = hook(payload, f)
-        assert r == {}, r
-
-
-def test_precompact_done_node_is_silent():
-    with tempfile.TemporaryDirectory() as d:
-        f = os.path.join(d, "s.json")
-        payload = json.dumps({"hook_event_name": "PreCompact"})
-        done_state = json.dumps({"flows": {"main": flow("done")}})
-        r = hook(payload, f, done_state)
+        r = hook(payload, f, two_open_flows(dir_a, dir_b))
         assert r == {}, r
 
 

@@ -104,7 +104,9 @@ The MCP server exposes exactly enough to walk the pipeline:
   **stays put**
 - `back` — takes a `flow`, routes the fix to the node that owns it, carrying a
   `note` of what to fix
-- `reset` — takes a `flow`, back to `dev`, lap and findings cleared
+- `reset` — takes a `flow`, back to `spec`, lap and findings cleared
+- `flow_close` — takes a `flow`, removes it entirely; the slug and its `dir`
+  are free for a new `flow_start`. Works on any flow, open or done.
 
 `flow` is required on every one of these — never inferred, never defaulted —
 so applying one flow's verdict to another can't happen by omission. `advance`
@@ -120,10 +122,18 @@ belongs to `dev`, not to the node just behind it.
 
 ## The loop closes itself
 
-One `Stop` hook. When the turn is about to end and the pipeline is not at
-`done`, it answers `decision: block` and hands back what `status` would say —
-node, lap, and the open finding. The session cannot end mid-pipeline, so the
-model re-enters with the brief instead of drifting off.
+One `Stop` hook. When the turn is about to end and a flow is open at a node
+other than `spec`, it answers `decision: block` and hands back what `status`
+would say — node, lap, and the open finding. The session cannot end
+mid-pipeline, so the model re-enters with the brief instead of drifting off.
+
+Flows parked at `spec` don't block: that node's only completion condition is
+a human approving the proposal, and there is nothing for the model to do
+while it waits — blocking there either burns a turn or pressures the model
+into approving its own proposal, the exact failure `spec` exists to prevent.
+Those flows surface through `systemMessage` instead, addressed to the person
+whose approval is pending. If every open flow is parked at `spec`, the hook
+doesn't block at all.
 
 The escape hatch is the other half, and it is not optional. The hook payload's
 `stop_hook_active` means "you already blocked this once"; on re-entry the hook
@@ -141,8 +151,43 @@ What the tools still don't do is check whether a node told the truth. `qa` can
 report a pass on a suite that pins a bug green — that happened here, and what
 caught it was `reviewer`, not a tool.
 
+`dev` is the one exception: `advance(verdict="pass")` at `dev` is refused if
+the working tree and `HEAD` both look exactly as they did on entry —
+`git status --porcelain` plus `git rev-parse HEAD`, before and after,
+compared. `HEAD` is in the hash so a `dev` that commits its work still shows
+a change and is not wedged; a `dev` that did nothing at all is still caught.
+It degrades open, never blocks, when `dir` is unset, not a git repo, `git`
+isn't on PATH, or the baseline was never recorded — a mechanical honesty
+check, not a substitute for `qa`/`review`.
+
+`SessionStart` re-announces every open flow after a compaction or a resume.
+A `PreCompact` hook used to duplicate this; it's gone as of 0.7.0 — its only
+outbound channel is `systemMessage` ("a message to the user"), which can't
+inject into what a summarizer keeps, so it never did what it claimed to.
+
+Every successful `flow_start`/`advance`/`back`/`reset`/`flow_close` call
+appends one line to `.mini-vise.log` (`status` doesn't) — a run record, not a
+dependency: a write failure there never fails the tool call.
+
+The same five calls also snapshot the flow's `dir`: a commit at
+`refs/mini-vise/snapshots/<slug>`, one ref per flow, built through a
+throwaway index so it never touches the real working tree, index, or `HEAD`.
+`flow_close` snapshots before the entry is deleted, since closing an open
+flow discards its finding. It's content only — `git add -A` honours
+`.gitignore`, so `.mini-vise.json` and `.mini-vise.log` are never in the
+snapshot, and restoring one never brings the flow state back. `status` shows
+the ref once a snapshot exists. Same degradation rule as everything else
+here: not a repo, `git` unavailable, `dir` unset or missing, or a repo with
+no commits yet (no parent for the snapshot commit) — skip silently, never
+fail the call.
+
+To recover a snapshot: `git restore --source=refs/mini-vise/snapshots/<slug> .`
+No wrapper tool — `git restore` and `git reflog show refs/mini-vise/snapshots/<slug>`
+(to see every snapshot taken, not just the latest) already do it.
+
 State lives in `.mini-vise.json` in the working directory (override with
-`MINI_VISE_STATE`), one entry per flow. No database, no config.
+`MINI_VISE_STATE`, which moves the log with it), one entry per flow. No
+database, no config.
 
 ## Use it
 

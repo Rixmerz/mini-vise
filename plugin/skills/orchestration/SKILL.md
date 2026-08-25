@@ -91,9 +91,19 @@ what correct looks like, how you will know. A feature gets the full set. What
 never scales down is **the acceptance criteria** — if you cannot say what
 "done" looks like before starting, you are not ready to call `advance`.
 
+**Every delta gets an acceptance criterion, or it does not ship.** A section
+that describes a change with no criterion attached is the one that gets lost —
+`review` has nothing to check it against (`docs/multi-flow.md` §d shipped this
+way and the delta went unimplemented).
+
 **Check the tree is clean before `advance`.** `git status` — uncommitted work
 from somewhere else will ride into the diff `review` reads and get shipped
 under your spec. Commit it, stash it, or say in the proposal that it is there.
+
+**Call `advisor()` before showing the proposal to the user.** A second look at
+the spec before it goes to the person approving it catches what you missed
+writing it. This is a main-loop tool — subagents have no advisor, do not tell
+them to use one.
 
 **Get the user to approve it.** Show them the proposal and ask. Their correction
 at this node costs one message; the same correction at `review` costs a full
@@ -108,6 +118,8 @@ Brief the subagent with:
 - the task, in one paragraph;
 - **the path to the spec**, so it reads the criteria rather than guessing them;
 - the open finding from `status`, verbatim, if there is one;
+- **the flow slug**, so its report's required `flow: <slug>` first line names
+  the right flow instead of being omitted or invented;
 - nothing about how to do its job. The charter and its skills cover that.
 
 Write the brief on the wire, not in prose: drop articles, filler, hedging,
@@ -117,8 +129,9 @@ report back the same way (see the `baseline` skill). What you write *to the
 user* stays normal prose.
 
 ```
-implement openspec/changes/rate-limit/proposal.md. open finding from status:
-"429 returned but Retry-After missing (spec AC4)". repo conventions apply.
+flow: rate-limit. implement openspec/changes/rate-limit/proposal.md. open
+finding from status: "429 returned but Retry-After missing (spec AC4)". repo
+conventions apply.
 ```
 
 Then get out of the way. Do not read the files it is about to read, do not
@@ -154,6 +167,11 @@ judgement, and it is yours:
 A code finding at `review` goes to `dev`, **not** to `qa` just because `qa` is
 the node behind it. And when a reviewer says a question is "the author's call",
 that is the `spec` node calling: do not let a subagent guess a requirement.
+
+**Call `advisor()` before routing a `back`** when it is not obvious whether the
+finding is a code bug or a requirement nobody decided — the choice between
+`dev` and `spec` is a judgement worth a second look before it costs a lap.
+Main-loop tool, same as above; subagents still have no advisor.
 
 `back` requires a `note`. Write it so the receiving node can act without
 re-reading the review: what breaks, under what input, and what correct looks

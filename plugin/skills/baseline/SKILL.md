@@ -57,15 +57,17 @@ pleasantries, hedging, narration of what you did on the way, decorative tables
 and emoji. Fragments are fine. Pattern: `[thing] [action] [reason].`
 
 ```
+flow: rate-limit
 auth.py:41 added rate limit, spec AC3. tests untouched. skipped redis backend
 — in-memory covers single process.
 verdict: pass
 ```
 
-Never compress: the `verdict:` line, file paths, identifiers, quoted command
-output, error text, and any security or data-loss warning. Those are evidence
-and go verbatim. Never abbreviate a word to save characters — `cfg`, `impl`,
-`fn` cost the same tokens as the full word and read worse.
+Never compress: the `flow:` line, the `verdict:` line, file paths, identifiers,
+quoted command output, error text, and any security or data-loss warning.
+Those are evidence and go verbatim. Never abbreviate a word to save
+characters — `cfg`, `impl`, `fn` cost the same tokens as the full word and
+read worse.
 
 Same style for **anything you write that only another agent reads**: the notes
 you leave in the run, findings, task lists, scratch files in the change dir.
