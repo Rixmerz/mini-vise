@@ -35,6 +35,63 @@ without inventing a severity score.
 and writing asserts is mechanical; noticing that a green test pins a bug is
 not.
 
+## Orchestrator effort, and whether dev/qa should run on opus
+
+Two questions worth real answers instead of a guess: what reasoning effort
+should the *orchestrator* run at, and should `dev`/`qa` move off sonnet the
+way `reviewer` already has. Tested both, headless, in isolated throwaway
+repos — `claude -p ... --model sonnet --effort <level> --output-format json
+--dangerously-skip-permissions`, one `tmux` session per run so they ran
+concurrently. Every result was checked against a test oracle written
+independently of the pipeline, not against what the pipeline claimed —
+`subagent_stats.by_type` in the JSON result also confirms delegation
+actually happened rather than the orchestrator quietly doing the work
+itself.
+
+**Orchestrator effort — `low` / `medium` / `high`, same trivial task, three
+runs.** All three delegated correctly and shipped identical, correct code.
+The difference was cost and whether the orchestrator used its own
+`advisor()` self-check before calling a task done:
+
+| effort | cost | wall time | orchestrator output tokens | called `advisor()` |
+|---|---|---|---|---|
+| high | $1.05 | 145s | 3399 | yes |
+| medium | $0.92 | 116s | 2161 | yes |
+| low | $0.73 | 77s | 171 | **no** |
+
+**Recommendation: `medium`.** It's 12% cheaper than `high` with identical
+output, and unlike `low` it still ran the self-check before declaring the
+task done. `low` is real money saved but the one behavioral difference it
+showed — skipping a safety step — is exactly the kind of corner-cutting
+that's invisible on an easy task and only shows up when it matters.
+
+**`dev`/`qa` model — sonnet (current) vs opus, three harder tasks, two reps
+each, effort pinned at `medium`.** Each task had a real, unstated edge case:
+merging touching intervals, validating a duration string, redacting emails
+from free text. 11 of 12 runs shipped correct, verified code regardless of
+model (the 12th hit a 10-minute timeout after a legitimate `back()` lap, not
+a wrong answer). Cost scaled roughly 2× — $0.82/run average on sonnet,
+$2.09/run on opus, and the only timeout was an opus run.
+
+The one real difference: feeding every implementation the string `'٥'`
+(Arabic-indic digit five, never mentioned in any spec) as input showed both
+sonnet-authored duration parsers silently accepted it and returned `5` —
+`reviewer` (opus in both configs) didn't catch it either time. The
+opus-authored parser rejected it correctly — but only because its *own*
+first draft had introduced a related bug (`re.IGNORECASE` without
+`re.ASCII`) that its own review lap caught and dev fixed. Read plainly: dev
+being opus didn't produce fewer mistakes, it produced a mistake shaped in a
+way the same reviewer happened to catch. Two samples per cell — a pattern,
+not a proof.
+
+**Recommendation: keep `dev`/`qa` on sonnet.** No correctness win was found
+to justify 2× the cost. The actual gap — `reviewer` missing an
+out-of-ASCII-alphabet input — is a `reviewer` charter problem, not a `dev`
+model problem, and costs nothing to fix directly: tell `reviewer` to probe
+parsers and validators with non-ASCII input, rather than paying double on
+every task hoping a different model happens to trip over the same class of
+bug.
+
 ## Tools
 
 The MCP server exposes exactly enough to walk the pipeline:
