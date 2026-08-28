@@ -17,7 +17,7 @@ import tempfile
 import time
 from pathlib import Path
 
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 
 NODES = ["spec", "dev", "qa", "review"]
 HUMAN = "spec"  # the node with no subagent — the orchestrator writes it, a person approves it
@@ -152,6 +152,10 @@ def log_call(tool: str, flow: str, s: dict, verdict: str | None) -> None:
         pass
 
 
+SNAPSHOT_EMAIL = "snapshot@mini-vise.local"
+SNAPSHOT_NAME = "mini-vise"
+
+
 def snapshot_ref_name(flow: str) -> str:
     return f"refs/mini-vise/snapshots/{flow}"
 
@@ -196,7 +200,18 @@ def snapshot(tool: str, flow: str, s: dict) -> None:
             return
         msg = f"mini-vise snapshot: flow={flow} tool={tool} node={s['node']} lap={s['lap']}"
         commit = subprocess.run(
-            ["git", "commit-tree", tree.stdout.strip(), "-p", head.stdout.strip(), "-m", msg],
+            # explicit identity, not the machine's global config: `commit-tree` is
+            # the one call here that needs one, and without it git exits "Author
+            # identity unknown" — so on any box with no configured user (CI
+            # containers, fresh checkouts, Docker images) every snapshot silently
+            # did nothing. A fixed identity is also the truer attribution: these
+            # are machine-written commits in a private ref namespace, not the
+            # user's. `add`, `write-tree` and `update-ref --create-reflog` all
+            # work without one, verified — so they stay untouched.
+            ["git",
+             "-c", f"user.email={SNAPSHOT_EMAIL}",
+             "-c", f"user.name={SNAPSHOT_NAME}",
+             "commit-tree", tree.stdout.strip(), "-p", head.stdout.strip(), "-m", msg],
             cwd=d, capture_output=True, text=True, timeout=10,
         )
         if commit.returncode != 0:

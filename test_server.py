@@ -1227,6 +1227,37 @@ def test_ac8_orchestrator_docs_instruct_passing_flow_slug():
         "run.md step 3 no longer says to pass the flow slug when delegating"
 
 
+def test_snap_ac18_snapshot_works_with_no_global_git_identity():
+    """Regression guard. `commit-tree` is the one call in snapshot() that needs a
+    committer identity; without an explicit one it inherits the machine's global
+    config, so every snapshot silently no-opped on any box that has none — CI
+    containers, fresh checkouts, Docker images. Every other snapshot test passes
+    on a configured machine and so cannot catch this coming back.
+
+    GIT_CONFIG_GLOBAL/SYSTEM=/dev/null hides the ambient config from the server
+    subprocess only; the helpers below commit with an explicit -c identity of
+    their own and are unaffected."""
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as repo:
+        repo = os.path.realpath(repo)
+        git_init_with_commit(repo)
+        env = {
+            **os.environ,
+            "MINI_VISE_STATE": os.path.join(d, "s.json"),
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+        }
+        run([("flow_start", dict(slug="a", dir=repo))], env)
+        assert snapshot_ref_exists(repo, "a"), \
+            "snapshot did not commit with no global git identity — commit-tree needs an explicit -c identity"
+        # and the commit really is attributed to the fixed identity, not to whatever
+        # the machine happened to have configured
+        who = subprocess.run(
+            ["git", "log", "-1", "--format=%an <%ae>", f"refs/mini-vise/snapshots/a"],
+            cwd=repo, capture_output=True, text=True,
+        ).stdout.strip()
+        assert who == "mini-vise <snapshot@mini-vise.local>", who
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

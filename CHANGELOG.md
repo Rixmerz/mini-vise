@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.8.1 — snapshots never ran where they were needed most
+
+CI has been red since it was added in 0.7.0 — all four runs, `main` included.
+The failing assertion looked cosmetic and was not.
+
+`snapshot()` ran `git commit-tree` with no committer identity, so it inherited
+whatever the machine had configured globally. Where nothing was configured git
+exits *Author identity unknown*, `commit-tree` returns non-zero, and
+`snapshot()` returns silently — correct per its own degrade-open contract, and
+the wrong outcome: **no snapshot was ever written on a machine without a global
+git identity.** CI containers, fresh checkouts, Docker images. 0.8.0 added
+snapshots because a `qa` run destroyed three files of uncommitted work; the
+throwaway environments least likely to have a git identity are exactly the ones
+where that safety net matters most.
+
+The fix is an explicit `-c user.email` / `-c user.name` on that one call.
+`git add -A`, `git write-tree` and `git update-ref --create-reflog` all work
+without an identity — verified, so they are untouched. The snapshot commits are
+now attributed to `mini-vise <snapshot@mini-vise.local>`, which is also the
+truer attribution: they are machine-written commits in a private ref namespace,
+not the user's.
+
+The test helper already stated the rule the product code was missing —
+*"explicit -c identity, not the environment's global config — a snapshot test
+must not depend on git being pre-configured on whatever machine runs it."* It
+was applied to the helper and not to the code the helper exercises, which is
+why every snapshot test passed locally and none of them could catch this.
+
+New regression guard: `test_snap_ac18_snapshot_works_with_no_global_git_identity`
+runs the snapshot path with `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM` pointed at
+`/dev/null` and asserts both that the ref exists and that the commit carries the
+fixed identity. Without it the suite stays green on any configured machine and
+the same bug returns unnoticed.
+
 ## 0.8.0 — snapshots, and the D3 wedge
 
 Follow-on to 0.7.0's tier sweep, which closed with two non-blocking findings
