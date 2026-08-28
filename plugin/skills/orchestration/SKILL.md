@@ -1,6 +1,6 @@
 ---
 name: orchestration
-description: How to drive the mini-vise pipeline — write the spec first, then delegate each node to its subagent, read the verdict honestly, and route findings back to whoever owns them. Use whenever you are the one holding the pipeline, before calling status, advance, or back, and whenever a task is big enough to need more than one edit.
+description: How to drive the mini-vise pipeline — write the spec first, then delegate each node to its subagent, read the verdict honestly, run the product yourself, and route findings back to whoever owns them. Use whenever you are the one holding the pipeline, before calling status, advance, or back, and whenever a task is big enough to need more than one edit.
 ---
 
 # orchestration
@@ -9,8 +9,8 @@ You are the orchestrator. **You do not write the code, the tests, or the
 review.** Each node has a subagent that does that better than you, because it
 starts with a clean context and a charter you do not have to hold in your head.
 
-Your job is four things: write the spec, delegate, read verdicts honestly, and
-route what comes back.
+Your job is five things: write the spec, delegate, read verdicts honestly, run
+the product yourself, and route what comes back.
 
 You are also the expensive part of a run — roughly two thirds of the spend is
 you, not the subagents. Every paragraph you write yourself instead of
@@ -96,6 +96,15 @@ that describes a change with no criterion attached is the one that gets lost —
 `review` has nothing to check it against (`docs/multi-flow.md` §d shipped this
 way and the delta went unimplemented).
 
+**At least one criterion states an output a user can see, not a state the
+system reports.** "the server responds to `list_monitors`" passes while the
+tool returns the wrong screen; "`capture_window(kitty)` returns pixels of the
+kitty window" does not. Every node downstream validates conformance to these
+lines and nothing else, so a criterion phrased as *the system answered* buys a
+`done` on a product that lies. The rule is mechanical: read each criterion and
+ask what the user would be looking at when it holds. If the answer is "a log
+line", rewrite it.
+
 **Check the tree is clean before `advance`.** `git status` — uncommitted work
 from somewhere else will ride into the diff `review` reads and get shipped
 under your spec. Commit it, stash it, or say in the proposal that it is there.
@@ -124,6 +133,13 @@ inventing a brief, it is refusing to lose one.
 The test is mechanical: **everything you add to a brief is quoted verbatim
 from a node's own report.** Librarian, not author. If you cannot point at the
 report a line came from, it does not go in.
+
+One carve-out, and it is narrow: **you may produce evidence by running the
+thing; you still may not produce claims by reading it.** What you saw when you
+ran the product is a first-hand observation and quoting it into a brief is
+allowed — it came from a report you wrote by running, which is the one report
+no subagent can write (§4). Diagnosis stays forbidden. Quote what happened,
+name the node that owns it, and let `dev` find the cause.
 
 Brief the subagent with:
 - the task, in one paragraph;
@@ -177,7 +193,10 @@ Two limits, and neither is optional:
 - **Only on evidence the node itself produced** — a `verdict:` line, a failing
   command in its `checks`. Never on your own reading of the diff. If `dev`
   reports green and you have a hunch, you spawn `qa`. The hunch is not
-  evidence, and acting on it is you reviewing code you did not read.
+  evidence, and acting on it is you reviewing code you did not read. A
+  run you performed yourself is the exception, and it is not a hunch: it is
+  evidence you produced (§4). Reading produces hunches, running produces
+  observations.
 - **Once per entry to `dev`.** After one `dev -> dev`, the next move out of
   `dev` is `advance` to `qa`. Two dev laps with no `qa` between them are worse
   than the `qa` spawn you saved: `dev` gets your opinion twice and no
@@ -185,7 +204,39 @@ Two limits, and neither is optional:
   failure the separation of nodes exists to prevent. `status` tells you when
   the short-circuit is already spent.
 
-## 4. Route what comes back
+## 4. Run it yourself
+
+**Before `advance` at `review`, use the product the way the user will.** From
+a clean state, by its real entry point, with the arguments a user would pass —
+and look at what comes back, not at whether it came back.
+
+No node can do this for you. `dev`, `qa` and `reviewer` hold `Bash` and the
+file tools; you hold the MCP servers, the running environment and the user's
+actual setup. A subagent asked to verify a tool it cannot invoke will verify
+the next best thing — that the code implementing it parses — and report that
+honestly as a pass.
+
+This is the gap the nodes cannot close by design. Every one of them validates
+conformance to the spec. If the spec asked the wrong question, three rigorous
+passes agree on a broken product, and the only actor positioned to notice is
+the one who can run it.
+
+**Run it once more, earlier, as soon as `dev` reports something runnable.** A
+wrong spec caught at the `review` gate has already been paid for three times.
+
+What to look at:
+- the output itself, against what a user expects to see — not the exit code;
+- the first run on a clean machine: no cache, no state, no env var you set by
+  hand three sessions ago;
+- the docs against the behavior. `grep` the README for every flag and default
+  the change touched.
+
+Then quote what you saw. `verdict="fail"` and `back(to="dev")` with the
+observation verbatim if it is wrong; `back(to="spec")` if it is right and the
+criterion was still the wrong question. Do not fix it yourself, and do not
+name a cause — see the carve-out in §2.
+
+## 5. Route what comes back
 
 `fail` stops the pipeline but does not choose where the work goes — that is a
 judgement, and it is yours:
@@ -229,7 +280,7 @@ re-reading the review: what breaks, under what input, and what correct looks
 like. It is stored in the state file and shown to that node by `status`, so it
 survives a compaction, a new session, and a different model picking this up.
 
-## 5. Know when you are stuck
+## 6. Know when you are stuck
 
 `status` shows a lap count and the laps behind it. Every `back` raises the
 count, but the count alone carries two opposite diagnoses — read the history,

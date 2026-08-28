@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased — the pipeline learns to use the product
+
+Three markdown edits, no `server.py` change, all from one run's retro: a
+packaging task took 4 laps, 9 subagent runs and ~436k tokens, three nodes
+passed it, and the product shipped returning the wrong window's pixels under
+the right label. Nothing in the state machine caused that and nothing in the
+state machine could have caught it.
+
+- **`/mini-vise:run` now refuses the tasks it is bad at.** A table of
+  disqualifying shapes — docs/packaging/config-only, exploratory work, one
+  obvious edit, and above all *the risk is in what to build, not in building
+  it* — with what to do instead. The run that produced this entry was the
+  third row. A pipeline pointed at the wrong task is expensive before it is
+  ever wrong, and no gate added downstream fixes that.
+- **The orchestrator runs the product before `done`** (`orchestration` §4).
+  `dev`, `qa` and `reviewer` hold `Bash` and the file tools; the main loop
+  holds the MCP servers and the user's real environment, so it is the only
+  actor that can exercise the artifact the way a user will. A subagent asked
+  to verify a tool it cannot invoke verifies that the code parses and reports
+  that honestly as a pass. Also run once as soon as `dev` has something
+  runnable — a wrong spec caught at the `review` gate has been paid for three
+  times. The "authoring is forbidden" rule gets one narrow carve-out to allow
+  it: **evidence by running is yours to produce; claims by reading are still
+  not.** Quote what happened, name the owning node, do not diagnose.
+- **At least one acceptance criterion must name output a user can see**
+  (`orchestration` §1). "the server responds to `list_monitors`" holds while
+  the tool returns the wrong screen. Every node downstream validates
+  conformance to the criteria and nothing else, so a criterion phrased as *the
+  system answered* buys a rigorous `done` on a product that lies. Mechanical
+  check, not a reflection prompt: read each criterion, ask what the user is
+  looking at when it holds, and rewrite it if the answer is "a log line".
+
 ## 0.9.0 — laps get memory, a gate, a shortcut and a classification
 
 Four observations that turned out to be one axis, so they ship as one version
