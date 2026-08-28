@@ -50,7 +50,8 @@ def test_tool_list_has_six_tools_flow_required():
         assert names == ["advance", "back", "flow_close", "flow_start", "reset", "status"], names
         by_name = {t["name"]: t for t in tools["result"]["tools"]}
         assert by_name["advance"]["inputSchema"]["required"] == ["flow", "verdict"]
-        assert by_name["back"]["inputSchema"]["required"] == ["flow", "to", "note"]
+        assert "checks" in by_name["advance"]["inputSchema"]["properties"]
+        assert by_name["back"]["inputSchema"]["required"] == ["flow", "to", "note", "kind"]
         assert by_name["reset"]["inputSchema"]["required"] == ["flow"]
         assert by_name["flow_close"]["inputSchema"]["required"] == ["flow"]
         assert "required" not in by_name["status"]["inputSchema"] or "flow" not in \
@@ -94,12 +95,12 @@ def test_ac3_flow_start_same_dir_after_other_flow_done_succeeds():
     with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as shared:
         shared = os.path.realpath(shared)
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
-        P = dict(verdict="pass")
+        P = dict(verdict="pass", checks="ruff check: All checks passed")
         _, texts, errs = run([
             ("flow_start", dict(slug="a", dir=shared)),
             ("advance", dict(flow="a", **P)),                                    # spec->dev
             ("advance", dict(flow="a", **P)),                                    # dev->qa
-            ("advance", dict(flow="a", verdict="pass", evidence="pytest\nok")),  # qa->review
+            ("advance", dict(flow="a", verdict="pass", evidence="pytest\nok", checks="ruff check: All checks passed")),  # qa->review
             ("advance", dict(flow="a", **P)),                                    # review->done
             ("flow_start", dict(slug="b", dir=shared)),                          # a is done now
         ], env)
@@ -114,7 +115,7 @@ def test_ac4_advance_moves_only_target_flow():
         _, texts, errs = run([
             ("flow_start", dict(slug="a", dir=dir_a)),
             ("flow_start", dict(slug="b", dir=dir_b)),
-            ("advance", dict(flow="a", verdict="pass")),
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),
         ], env)
         assert errs == [False, False, False], (texts, errs)
         s = state(env)
@@ -129,10 +130,10 @@ def test_ac5_evidence_gate_at_qa_is_per_flow():
         _, texts, errs = run([
             ("flow_start", dict(slug="a", dir=dir_a)),
             ("flow_start", dict(slug="b", dir=dir_b)),
-            ("advance", dict(flow="a", verdict="pass")),   # a: spec->dev
-            ("advance", dict(flow="a", verdict="pass")),   # a: dev->qa
-            ("advance", dict(flow="a", verdict="pass")),   # a: qa, missing evidence -> error
-            ("advance", dict(flow="b", verdict="pass")),   # b: spec->dev, unaffected by a's block
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),   # a: spec->dev
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),   # a: dev->qa
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),   # a: qa, missing evidence -> error
+            ("advance", dict(flow="b", verdict="pass", checks="ruff check: All checks passed")),   # b: spec->dev, unaffected by a's block
         ], env)
         assert errs == [False, False, False, False, True, False], (texts, errs)
         assert "evidence" in texts[4]
@@ -147,7 +148,7 @@ def test_ac6_back_raises_lap_of_only_target_flow():
         _, texts, errs = run([
             ("flow_start", dict(slug="a", dir=dir_a)),
             ("flow_start", dict(slug="b", dir=dir_b)),
-            ("back", dict(flow="a", to="dev", note="fix the guard")),
+            ("back", dict(flow="a", to="dev", note="fix the guard", kind="judgement")),
         ], env)
         assert errs == [False, False, False], (texts, errs)
         assert texts[2].startswith("[flow: a] node: dev (2/4) (lap 2)"), texts[2]
@@ -164,10 +165,10 @@ def test_ac7_advance_back_reset_missing_or_unknown_flow_errors_state_unchanged()
         run([("flow_start", dict(slug="a", dir=dir_a))], env)
         snap = state(env)
         _, texts, errs = run([
-            ("advance", dict(verdict="pass")),                    # flow omitted
-            ("advance", dict(flow="ghost", verdict="pass")),      # flow unknown
-            ("back", dict(to="dev", note="x")),                   # flow omitted
-            ("back", dict(flow="ghost", to="dev", note="x")),     # flow unknown
+            ("advance", dict(verdict="pass", checks="ruff check: All checks passed")),                    # flow omitted
+            ("advance", dict(flow="ghost", verdict="pass", checks="ruff check: All checks passed")),      # flow unknown
+            ("back", dict(to="dev", note="x", kind="judgement")),                   # flow omitted
+            ("back", dict(flow="ghost", to="dev", note="x", kind="judgement")),     # flow unknown
             ("reset", dict()),                                    # flow omitted
             ("reset", dict(flow="ghost")),                        # flow unknown
         ], env)
@@ -183,8 +184,8 @@ def test_ac8_status_no_flow_renders_all_open_flows_each_with_own_finding():
         _, texts, errs = run([
             ("flow_start", dict(slug="a", dir=dir_a)),
             ("flow_start", dict(slug="b", dir=dir_b)),
-            ("advance", dict(flow="a", verdict="pass")),                    # a: spec->dev
-            ("back", dict(flow="a", to="dev", note="finding on a only")),
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),                    # a: spec->dev
+            ("back", dict(flow="a", to="dev", note="finding on a only", kind="judgement")),
             ("status", dict()),
         ], env)
         assert errs == [False, False, False, False, False], (texts, errs)
@@ -232,14 +233,14 @@ def test_ac14_two_flows_full_pipeline_parallel_no_crossed_evidence():
         _, texts, errs = run([
             ("flow_start", dict(slug="a", dir=pa)),
             ("flow_start", dict(slug="b", dir=pb)),
-            ("advance", dict(flow="a", verdict="pass", spec_path="docs/a.md")),
-            ("advance", dict(flow="b", verdict="pass", spec_path="docs/b.md")),
-            ("advance", dict(flow="a", verdict="pass")),
-            ("advance", dict(flow="b", verdict="pass")),
-            ("advance", dict(flow="a", verdict="pass", evidence="pytest a\n1 passed")),
-            ("advance", dict(flow="b", verdict="pass", evidence="pytest b\n1 passed")),
-            ("advance", dict(flow="a", verdict="pass")),
-            ("advance", dict(flow="b", verdict="pass")),
+            ("advance", dict(flow="a", verdict="pass", spec_path="docs/a.md", checks="ruff check: All checks passed")),
+            ("advance", dict(flow="b", verdict="pass", spec_path="docs/b.md", checks="ruff check: All checks passed")),
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),
+            ("advance", dict(flow="b", verdict="pass", checks="ruff check: All checks passed")),
+            ("advance", dict(flow="a", verdict="pass", evidence="pytest a\n1 passed", checks="ruff check: All checks passed")),
+            ("advance", dict(flow="b", verdict="pass", evidence="pytest b\n1 passed", checks="ruff check: All checks passed")),
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),
+            ("advance", dict(flow="b", verdict="pass", checks="ruff check: All checks passed")),
         ], env)
         assert errs == [False] * 10, (texts, errs)
         s = state(env)
@@ -361,12 +362,12 @@ def test_advance_on_done_flow_reports_already_done():
     with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as flow_dir:
         flow_dir = os.path.realpath(flow_dir)
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
-        P = dict(verdict="pass")
+        P = dict(verdict="pass", checks="ruff check: All checks passed")
         _, texts, errs = run([
             ("flow_start", dict(slug="a", dir=flow_dir)),
             ("advance", dict(flow="a", **P)),
             ("advance", dict(flow="a", **P)),
-            ("advance", dict(flow="a", verdict="pass", evidence="pytest\nok")),
+            ("advance", dict(flow="a", verdict="pass", evidence="pytest\nok", checks="ruff check: All checks passed")),
             ("advance", dict(flow="a", **P)),   # -> done
             ("advance", dict(flow="a", **P)),   # already done
         ], env)
@@ -379,8 +380,8 @@ def test_back_validation_errors():
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         run([("flow_start", dict(slug="a", dir=dir_a))], env)
         _, texts, errs = run([
-            ("back", dict(flow="a", to="dev", note="")),        # note required
-            ("back", dict(flow="a", to="nope", note="x")),      # to must be a real node
+            ("back", dict(flow="a", to="dev", note="", kind="judgement")),        # note required
+            ("back", dict(flow="a", to="nope", note="x", kind="judgement")),      # to must be a real node
         ], env)
         assert errs == [True, True], (texts, errs)
         assert "note" in texts[0]
@@ -391,10 +392,10 @@ def test_pass_clears_open_finding_stays_cleared():
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         _, texts, errs = run([
             ("flow_start", dict(slug="a", dir=dir_a)),
-            ("advance", dict(flow="a", verdict="pass")),                       # spec->dev
-            ("back", dict(flow="a", to="dev", note="the empty-code case")),
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),                       # spec->dev
+            ("back", dict(flow="a", to="dev", note="the empty-code case", kind="judgement")),
             ("status", dict(flow="a")),
-            ("advance", dict(flow="a", verdict="pass")),                       # a pass closes it
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),                       # a pass closes it
             ("status", dict(flow="a")),
         ], env)
         assert errs == [False] * 6, (texts, errs)
@@ -409,8 +410,8 @@ def test_reset_happy_path_is_per_flow_and_preserves_dir_for_the_collision_guard(
         _, texts, errs = run([
             ("flow_start", dict(slug="a", dir=dir_a)),
             ("flow_start", dict(slug="b", dir=dir_b)),
-            ("advance", dict(flow="a", verdict="pass")),
-            ("back", dict(flow="a", to="dev", note="x")),
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),
+            ("back", dict(flow="a", to="dev", note="x", kind="judgement")),
             ("reset", dict(flow="a")),
             ("flow_start", dict(slug="c", dir=dir_a)),   # a still open post-reset -> dir still blocked
         ], env)
@@ -423,7 +424,8 @@ def test_reset_happy_path_is_per_flow_and_preserves_dir_for_the_collision_guard(
 
 
 BLANK_FOR_TEST = {"node": "spec", "lap": 1, "note": None, "note_for": None,
-                   "spec_path": None, "evidence": None, "tree": None}
+                   "spec_path": None, "evidence": None, "tree": None,
+                   "checks": None, "history": []}
 
 
 def test_flow_start_dir_collision_relative_dot_vs_absolute_cwd():
@@ -552,9 +554,19 @@ def write_state(path, flows):
     pathlib.Path(path).write_text(json.dumps({"flows": flows}))
 
 
-def raw_flow(node, lap=1, note=None, note_for=None, spec_path=None, evidence=None, dir_=None, tree=None):
+def raw_flow(node, lap=1, note=None, note_for=None, spec_path=None, evidence=None, dir_=None,
+             tree=None, checks=None, history=None):
     return {"node": node, "lap": lap, "note": note, "note_for": note_for,
-            "spec_path": spec_path, "evidence": evidence, "dir": dir_, "tree": tree}
+            "spec_path": spec_path, "evidence": evidence, "dir": dir_, "tree": tree,
+            "checks": checks, "history": list(history or [])}
+
+
+def hist(lap, frm, to, note, kind="judgement"):
+    return {"lap": lap, "from": frm, "to": to, "note": note, "kind": kind}
+
+
+CHECKS = "ruff check: All checks passed"
+DEV_PASS = dict(verdict="pass", checks=CHECKS)
 
 
 def test_ac1_render_shows_dir_line_when_set_omits_when_none():
@@ -620,7 +632,7 @@ def test_ac12_flow_close_on_open_flow_names_the_node():
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         _, texts, errs = run([
             ("flow_start", dict(slug="a", dir=close_b)),
-            ("advance", dict(flow="a", verdict="pass")),  # spec -> dev
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),  # spec -> dev
             ("flow_close", dict(flow="a")),
         ], env)
         assert errs == [False, False, False], (texts, errs)
@@ -635,8 +647,8 @@ def test_ac13_mutating_calls_log_one_jsonl_line_status_logs_none():
         _, texts, errs = run([
             ("flow_start", dict(slug="a", dir=log_a)),
             ("status", dict()),  # a read — must append nothing
-            ("advance", dict(flow="a", verdict="pass")),  # spec -> dev
-            ("back", dict(flow="a", to="dev", note="x")),
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),  # spec -> dev
+            ("back", dict(flow="a", to="dev", note="x", kind="judgement")),
             ("reset", dict(flow="a")),
             ("flow_close", dict(flow="a")),
         ], env)
@@ -645,7 +657,7 @@ def test_ac13_mutating_calls_log_one_jsonl_line_status_logs_none():
         assert len(lines) == 5, lines  # status contributes none
         entries = [json.loads(l) for l in lines]
         for e in entries:
-            assert set(e) == {"ts", "flow", "tool", "node", "lap", "verdict"}, e
+            assert set(e) == {"ts", "flow", "tool", "node", "lap", "verdict", "kind", "note"}, e
             assert e["flow"] == "a"
         assert [e["tool"] for e in entries] == ["flow_start", "advance", "back", "reset", "flow_close"]
         assert entries[1]["verdict"] == "pass"  # the advance line
@@ -679,7 +691,7 @@ def test_ac16_tree_recorded_entering_dev_via_advance_leaving_spec():
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         _, texts, errs = run([
             ("flow_start", dict(slug="a", dir=repo)),
-            ("advance", dict(flow="a", verdict="pass")),  # spec -> dev
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),  # spec -> dev
         ], env)
         assert errs == [False, False], (texts, errs)
         s = state(env)
@@ -694,13 +706,13 @@ def test_ac16_tree_re_recorded_entering_dev_via_back():
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         run([
             ("flow_start", dict(slug="a", dir=repo)),
-            ("advance", dict(flow="a", verdict="pass")),  # spec -> dev, baseline1
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),  # spec -> dev, baseline1
         ], env)
         baseline1 = state(env)["flows"]["a"]["tree"]
         pathlib.Path(repo, "new.txt").write_text("x")  # tree now differs from baseline1
         _, texts, errs = run([
-            ("advance", dict(flow="a", verdict="pass")),      # dev -> qa (tree differs, allowed)
-            ("back", dict(flow="a", to="dev", note="fix it")),  # re-enter dev, re-record
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),      # dev -> qa (tree differs, allowed)
+            ("back", dict(flow="a", to="dev", note="fix it", kind="judgement")),  # re-enter dev, re-record
         ], env)
         assert errs == [False, False], (texts, errs)
         baseline2 = state(env)["flows"]["a"]["tree"]
@@ -715,12 +727,12 @@ def test_ac17_advance_pass_at_dev_blocked_when_tree_unchanged_state_unchanged():
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         run([
             ("flow_start", dict(slug="a", dir=repo)),
-            ("advance", dict(flow="a", verdict="pass")),  # spec -> dev, baseline recorded
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),  # spec -> dev, baseline recorded
         ], env)
         snap = state(env)
         log_path = pathlib.Path(env["MINI_VISE_STATE"]).with_suffix(".log")
         lines_before = log_path.read_text().splitlines()
-        _, texts, errs = run([("advance", dict(flow="a", verdict="pass"))], env)  # no tree change
+        _, texts, errs = run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], env)  # no tree change
         assert errs == [True], (texts, errs)
         assert repo in texts[0], texts[0]
         # AC6: the block message must not assert "no change" as fact — it
@@ -739,10 +751,10 @@ def test_ac18_advance_pass_at_dev_allowed_when_tree_differs():
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         run([
             ("flow_start", dict(slug="a", dir=repo)),
-            ("advance", dict(flow="a", verdict="pass")),  # spec -> dev
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),  # spec -> dev
         ], env)
         pathlib.Path(repo, "touched.txt").write_text("x")
-        _, texts, errs = run([("advance", dict(flow="a", verdict="pass"))], env)
+        _, texts, errs = run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], env)
         assert errs == [False], (texts, errs)
         assert state(env)["flows"]["a"]["node"] == "qa"
 
@@ -752,7 +764,7 @@ def test_ac19_dev_check_skips_when_dir_is_none():
         f = os.path.join(d, "s.json")
         write_state(f, {"a": raw_flow("dev", dir_=None, tree=None)})
         env = {**os.environ, "MINI_VISE_STATE": f}
-        _, texts, errs = run([("advance", dict(flow="a", verdict="pass"))], env)
+        _, texts, errs = run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], env)
         assert errs == [False], (texts, errs)
         assert state(env)["flows"]["a"]["node"] == "qa"
 
@@ -763,10 +775,10 @@ def test_ac19_dev_check_skips_when_dir_is_not_a_git_repo():
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         run([
             ("flow_start", dict(slug="a", dir=notrepo)),
-            ("advance", dict(flow="a", verdict="pass")),  # spec -> dev; tree_hash -> None
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),  # spec -> dev; tree_hash -> None
         ], env)
         assert state(env)["flows"]["a"]["tree"] is None
-        _, texts, errs = run([("advance", dict(flow="a", verdict="pass"))], env)
+        _, texts, errs = run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], env)
         assert errs == [False], (texts, errs)
         assert state(env)["flows"]["a"]["node"] == "qa"
 
@@ -779,11 +791,11 @@ def test_ac19_dev_check_skips_when_git_unavailable():
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         run([
             ("flow_start", dict(slug="a", dir=repo)),
-            ("advance", dict(flow="a", verdict="pass")),  # spec -> dev, git present -> real baseline
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),  # spec -> dev, git present -> real baseline
         ], env)
         assert state(env)["flows"]["a"]["tree"] is not None
         degraded_env = {**env, "PATH": no_git_path}  # empty dir on PATH -> git not found
-        _, texts, errs = run([("advance", dict(flow="a", verdict="pass"))], degraded_env)
+        _, texts, errs = run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], degraded_env)
         assert errs == [False], (texts, errs)
         assert state(env)["flows"]["a"]["node"] == "qa"
 
@@ -796,7 +808,7 @@ def test_ac19_dev_check_skips_when_tree_was_never_recorded():
         f = os.path.join(d, "s.json")
         write_state(f, {"a": raw_flow("dev", dir_=repo, tree=None)})
         env = {**os.environ, "MINI_VISE_STATE": f}
-        _, texts, errs = run([("advance", dict(flow="a", verdict="pass"))], env)
+        _, texts, errs = run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], env)
         assert errs == [False], (texts, errs)
         assert state(env)["flows"]["a"]["node"] == "qa"
 
@@ -808,7 +820,7 @@ def test_ac20_dev_tree_check_ignored_on_fail_verdict():
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         run([
             ("flow_start", dict(slug="a", dir=repo)),
-            ("advance", dict(flow="a", verdict="pass")),  # spec -> dev, tree unchanged since
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),  # spec -> dev, tree unchanged since
         ], env)
         _, texts, errs = run([("advance", dict(flow="a", verdict="fail"))], env)
         assert errs == [False], (texts, errs)
@@ -825,7 +837,7 @@ def test_ac20_dev_tree_check_ignored_at_spec():
         f = os.path.join(d, "s.json")
         write_state(f, {"a": raw_flow("spec", dir_=repo, tree=git_status_hash(repo))})
         env = {**os.environ, "MINI_VISE_STATE": f}
-        _, texts, errs = run([("advance", dict(flow="a", verdict="pass"))], env)
+        _, texts, errs = run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], env)
         assert errs == [False], (texts, errs)
         assert state(env)["flows"]["a"]["node"] == "dev"
 
@@ -838,14 +850,14 @@ def test_ac20_dev_tree_check_ignored_at_qa_and_review():
         f = os.path.join(d, "s.json")
         write_state(f, {"a": raw_flow("qa", dir_=repo, tree=h)})
         env = {**os.environ, "MINI_VISE_STATE": f}
-        _, texts, errs = run([("advance", dict(flow="a", verdict="pass", evidence="pytest\nok"))], env)
+        _, texts, errs = run([("advance", dict(flow="a", verdict="pass", evidence="pytest\nok", checks="ruff check: All checks passed"))], env)
         assert errs == [False], (texts, errs)
         assert state(env)["flows"]["a"]["node"] == "review"
 
         f2 = os.path.join(d, "s2.json")
         write_state(f2, {"a": raw_flow("review", dir_=repo, tree=h, evidence="pytest\nok")})
         env2 = {**os.environ, "MINI_VISE_STATE": f2}
-        _, texts2, errs2 = run([("advance", dict(flow="a", verdict="pass"))], env2)
+        _, texts2, errs2 = run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], env2)
         assert errs2 == [False], (texts2, errs2)
         assert state(env2)["flows"]["a"]["node"] == "done"
 
@@ -863,11 +875,11 @@ def test_snap_ac4_advance_pass_at_dev_succeeds_after_commit_with_clean_tree():
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         run([
             ("flow_start", dict(slug="a", dir=repo)),
-            ("advance", dict(flow="a", verdict="pass")),  # spec -> dev, baseline = clean tree + initial HEAD
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),  # spec -> dev, baseline = clean tree + initial HEAD
         ], env)
         pathlib.Path(repo, "new.txt").write_text("x")
         git_commit_all(repo, "dev work")  # tree clean again, but HEAD moved
-        _, texts, errs = run([("advance", dict(flow="a", verdict="pass"))], env)
+        _, texts, errs = run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], env)
         assert errs == [False], (texts, errs)
         assert state(env)["flows"]["a"]["node"] == "qa"
 
@@ -883,9 +895,9 @@ def test_snap_ac5_advance_blocked_when_truly_nothing_changed_with_commit_history
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         run([
             ("flow_start", dict(slug="a", dir=repo)),
-            ("advance", dict(flow="a", verdict="pass")),  # spec -> dev
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),  # spec -> dev
         ], env)
-        _, texts, errs = run([("advance", dict(flow="a", verdict="pass"))], env)  # nothing touched
+        _, texts, errs = run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], env)  # nothing touched
         assert errs == [True], (texts, errs)
         assert state(env)["flows"]["a"]["node"] == "dev"
 
@@ -908,11 +920,11 @@ def test_snap_ac8_every_mutating_call_snapshots_flow_close_snapshots_before_dele
         assert snapshot_ref_exists(repo, "a"), "flow_start must snapshot"
         rev1 = snapshot_ref_rev(repo, "a")
 
-        run([("advance", dict(flow="a", verdict="pass"))], env)  # spec -> dev
+        run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], env)  # spec -> dev
         rev2 = snapshot_ref_rev(repo, "a")
         assert rev2 != rev1, "advance must snapshot"
 
-        run([("back", dict(flow="a", to="dev", note="x"))], env)
+        run([("back", dict(flow="a", to="dev", note="x", kind="judgement"))], env)
         rev3 = snapshot_ref_rev(repo, "a")
         assert rev3 != rev2, "back must snapshot"
 
@@ -993,7 +1005,7 @@ def test_snap_ac12_two_snapshots_leave_two_reflog_entries():
         git_init_with_commit(repo)
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         run([("flow_start", dict(slug="a", dir=repo))], env)             # snapshot #1
-        run([("advance", dict(flow="a", verdict="pass"))], env)          # snapshot #2
+        run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], env)          # snapshot #2
         assert reflog_count(repo, "refs/mini-vise/snapshots/a") == 2
 
 
@@ -1083,14 +1095,14 @@ def test_snap_ac15_snapshot_does_not_disturb_h1_hash_still_blocked_after_snapsho
         env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
         run([
             ("flow_start", dict(slug="a", dir=repo)),              # snapshot
-            ("advance", dict(flow="a", verdict="pass")),           # spec -> dev, baseline recorded, snapshot
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),           # spec -> dev, baseline recorded, snapshot
         ], env)
         # a fail verdict at dev stays put but still snapshots (I1) — this is
         # the snapshot AC15 must not let leak into the D3 comparison
         _, texts, errs = run([("advance", dict(flow="a", verdict="fail"))], env)  # snapshot, no state move
         assert errs == [False], (texts, errs)
         assert state(env)["flows"]["a"]["node"] == "dev"
-        _, texts2, errs2 = run([("advance", dict(flow="a", verdict="pass"))], env)  # nothing really changed
+        _, texts2, errs2 = run([("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed"))], env)  # nothing really changed
         assert errs2 == [True], (texts2, errs2)
         assert "unchanged since entering dev" in texts2[0], texts2[0]
 
@@ -1108,7 +1120,7 @@ def test_snap_ac16_status_names_snapshot_ref_once_it_exists_not_before():
 
         git_init_with_commit(repo)
         _, texts2, errs2 = run([
-            ("advance", dict(flow="a", verdict="pass")),  # now a repo -> snapshot succeeds
+            ("advance", dict(flow="a", verdict="pass", checks="ruff check: All checks passed")),  # now a repo -> snapshot succeeds
             ("status", dict(flow="a")),
         ], env)
         assert errs2 == [False, False], (texts2, errs2)
@@ -1256,6 +1268,307 @@ def test_snap_ac18_snapshot_works_with_no_global_git_identity():
             cwd=repo, capture_output=True, text=True,
         ).stdout.strip()
         assert who == "mini-vise <snapshot@mini-vise.local>", who
+
+
+# --- 0.9.0: lap history, the checks gate, the short-circuit, classification ---
+
+def test_om_ac1_history_starts_empty_and_is_per_flow():
+    """A3a. `read()` builds each flow as {**BLANK, **s}, which copies the
+    *reference* — a mutable default in BLANK would be one list object behind
+    every flow and every read, and an append on one would surface on another."""
+    with tempfile.TemporaryDirectory() as d:
+        env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
+        with tempfile.TemporaryDirectory() as wa, tempfile.TemporaryDirectory() as wb:
+            _, texts, errs = run([
+                ("flow_start", dict(slug="a", dir=wa)),
+                ("flow_start", dict(slug="b", dir=wb)),
+            ], env)
+            assert errs == [False, False], (texts, errs)
+            s = state(env)
+            assert s["flows"]["a"]["history"] == []
+            assert s["flows"]["b"]["history"] == []
+            # append on `a` only
+            run([("advance", dict(flow="a", verdict="pass")),
+                 ("advance", dict(flow="a", **DEV_PASS)),
+                 ("back", dict(flow="a", to="dev", note="only a", kind="mechanical"))], env)
+            s = state(env)
+            assert len(s["flows"]["a"]["history"]) == 1, s["flows"]["a"]["history"]
+            assert s["flows"]["b"]["history"] == [], "b must not see a's append"
+
+
+def test_om_ac2_pre_090_state_without_history_loads_as_empty():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "s.json")
+        env = {**os.environ, "MINI_VISE_STATE": path}
+        legacy = {"node": "dev", "lap": 2, "note": "[from qa] x", "note_for": "dev",
+                  "spec_path": None, "evidence": None, "dir": None, "tree": None}
+        write_state(path, {"a": legacy})
+        _, texts, errs = run([("status", dict(flow="a"))], env)
+        assert errs == [False], (texts, errs)
+        run([("advance", dict(flow="a", **DEV_PASS))], env)
+        assert state(env)["flows"]["a"]["history"] == []
+
+
+def test_om_ac3_back_appends_one_entry_lap_is_post_increment_note_unprefixed():
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as w:
+        env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
+        run([("flow_start", dict(slug="a", dir=w)),
+             ("advance", dict(flow="a", verdict="pass")),
+             ("advance", dict(flow="a", **DEV_PASS)),
+             ("back", dict(flow="a", to="dev", note="429 missing Retry-After", kind="judgement"))], env)
+        f = state(env)["flows"]["a"]
+        assert len(f["history"]) == 1, f["history"]
+        e = f["history"][0]
+        assert set(e) == {"lap", "from", "to", "note", "kind"}, e
+        assert e["lap"] == f["lap"] == 2, (e, f["lap"])
+        assert e["from"] == "qa" and e["to"] == "dev", e
+        assert e["note"] == "429 missing Retry-After", e["note"]
+        assert "[from" not in e["note"], "history stores the note unprefixed"
+        assert f["note"] == "[from qa] 429 missing Retry-After", "note keeps its prefix"
+
+
+def test_om_ac4_advance_never_touches_history():
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as w:
+        env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
+        run([("flow_start", dict(slug="a", dir=w)),
+             ("advance", dict(flow="a", verdict="pass")),
+             ("advance", dict(flow="a", **DEV_PASS)),
+             ("back", dict(flow="a", to="dev", note="n", kind="mechanical"))], env)
+        before = json.dumps(state(env)["flows"]["a"]["history"])
+        pathlib.Path(w, "touch.txt").write_text("x")
+        run([("advance", dict(flow="a", **DEV_PASS)),      # dev->qa
+             ("advance", dict(flow="a", verdict="fail"))], env)
+        assert json.dumps(state(env)["flows"]["a"]["history"]) == before
+
+
+def test_om_ac5_reset_empties_history_flow_close_removes_it():
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as w:
+        env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
+        run([("flow_start", dict(slug="a", dir=w)),
+             ("advance", dict(flow="a", verdict="pass")),
+             ("advance", dict(flow="a", **DEV_PASS)),
+             ("back", dict(flow="a", to="dev", note="n", kind="mechanical"))], env)
+        assert len(state(env)["flows"]["a"]["history"]) == 1
+        run([("reset", dict(flow="a"))], env)
+        assert state(env)["flows"]["a"]["history"] == [], "reset lands at spec — old findings are stale"
+        run([("flow_close", dict(flow="a"))], env)
+        assert "a" not in state(env)["flows"]
+
+
+def test_om_ac6_two_backs_append_in_order_second_does_not_overwrite():
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as w:
+        env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
+        run([("flow_start", dict(slug="a", dir=w)),
+             ("advance", dict(flow="a", verdict="pass")),
+             ("advance", dict(flow="a", **DEV_PASS)),
+             ("back", dict(flow="a", to="dev", note="first", kind="mechanical"))], env)
+        pathlib.Path(w, "t.txt").write_text("x")
+        run([("advance", dict(flow="a", **DEV_PASS)),
+             ("back", dict(flow="a", to="dev", note="second", kind="judgement"))], env)
+        h = state(env)["flows"]["a"]["history"]
+        assert [e["note"] for e in h] == ["first", "second"], h
+        assert [e["lap"] for e in h] == [2, 3], h
+        assert [e["kind"] for e in h] == ["mechanical", "judgement"], h
+
+
+def test_om_ac7_no_previous_laps_block_at_lap_1_or_empty_history():
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as w:
+        env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
+        _, texts, _ = run([("flow_start", dict(slug="a", dir=w)),
+                           ("status", dict(flow="a"))], env)
+        assert "previous laps" not in texts[1], texts[1]
+
+
+def test_om_ac8_ac9_prior_laps_render_once_and_survive_a_close():
+    """AC8: the open finding shows under `open finding`, not twice.
+    AC9: an entry closed by `advance` still renders on a later lap."""
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "s.json")
+        env = {**os.environ, "MINI_VISE_STATE": path}
+        write_state(path, {"a": raw_flow("dev", lap=3, note="[from review] third", note_for="dev",
+                                         history=[hist(2, "qa", "dev", "second finding"),
+                                                  hist(3, "review", "dev", "third")])})
+        _, texts, _ = run([("status", dict(flow="a"))], env)
+        t = texts[0]
+        assert "previous laps on this flow" in t, t
+        assert "second finding" in t, t
+        assert t.count("third") == 1, ("lap-3 note must not appear in both blocks", t)
+        assert "open finding to fix here" in t, t
+        # AC9: same history, finding already closed (note cleared) — lap 2 still shows
+        write_state(path, {"b": raw_flow("qa", lap=3, history=[hist(2, "qa", "dev", "second finding")])})
+        _, texts2, _ = run([("status", dict(flow="b"))], env)
+        assert "second finding" in texts2[0], texts2[0]
+        assert "open finding to fix here" not in texts2[0], texts2[0]
+
+
+def test_om_ac10_previous_laps_block_is_bounded():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "s.json")
+        env = {**os.environ, "MINI_VISE_STATE": path}
+        h = [hist(i, "qa", "dev", f"finding {i}") for i in range(2, 8)]   # six entries
+        write_state(path, {"a": raw_flow("dev", lap=9, history=h)})
+        _, texts, _ = run([("status", dict(flow="a"))], env)
+        t = texts[0]
+        shown = [i for i in range(2, 8) if f"finding {i}" in t]
+        assert shown == [5, 6, 7], ("only the three most recent", shown, t)
+        assert "3 earlier laps not shown" in t, t
+
+
+def test_om_ac11_hooks_inherit_the_previous_laps_block():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "s.json")
+        write_state(path, {"a": raw_flow("dev", lap=3, note="[from qa] now", note_for="dev",
+                                         history=[hist(2, "qa", "dev", "earlier finding")])})
+        for script, payload in (("hook_stop.py", {"stop_hook_active": False}),
+                                ("hook_ctx.py", {"hook_event_name": "SessionStart", "source": "startup"})):
+            r = subprocess.run([sys.executable, os.path.join(os.getcwd(), "plugin", script)],
+                               input=json.dumps(payload), capture_output=True, text=True,
+                               env={**os.environ, "MINI_VISE_STATE": path})
+            assert "earlier finding" in r.stdout, (script, r.stdout, r.stderr)
+
+
+def test_om_ac12_advance_pass_at_dev_without_checks_raises_state_unchanged():
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as w:
+        env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
+        run([("flow_start", dict(slug="a", dir=w)),
+             ("advance", dict(flow="a", verdict="pass"))], env)          # spec->dev
+        pathlib.Path(w, "code.py").write_text("x = 1\n")
+        before = json.dumps(state(env))
+        _, texts, errs = run([("advance", dict(flow="a", verdict="pass")),
+                              ("advance", dict(flow="a", verdict="pass", checks="   "))], env)
+        assert errs == [True, True], (texts, errs)
+        for t in texts:
+            assert "checks" in t and "node 'dev'" in t, t
+            assert "verbatim" in t, t
+        assert json.dumps(state(env)) == before, "a refused advance must not move the flow"
+
+
+def test_om_ac13_ac16_checks_stored_and_shown_to_qa_only():
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as w:
+        env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
+        run([("flow_start", dict(slug="a", dir=w)),
+             ("advance", dict(flow="a", verdict="pass"))], env)
+        pathlib.Path(w, "code.py").write_text("x = 1\n")
+        _, texts, errs = run([("advance", dict(flow="a", verdict="pass", checks="ruff: 0 errors"))], env)
+        assert errs == [False], (texts, errs)
+        assert state(env)["flows"]["a"]["checks"] == "ruff: 0 errors"
+        assert "dev checks:" in texts[0] and "ruff: 0 errors" in texts[0], texts[0]
+        # at review the checks block is gone; qa evidence takes over
+        _, t2, _ = run([("advance", dict(flow="a", verdict="pass", evidence="pytest\n1 passed"))], env)
+        assert "dev checks:" not in t2[0], t2[0]
+
+
+def test_om_ac14_checks_gate_only_at_dev_and_only_on_pass():
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as w:
+        env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
+        # spec passes with no checks
+        _, texts, errs = run([("flow_start", dict(slug="a", dir=w)),
+                              ("advance", dict(flow="a", verdict="pass"))], env)
+        assert errs == [False, False], (texts, errs)
+        # dev fail needs no checks either
+        _, texts2, errs2 = run([("advance", dict(flow="a", verdict="fail"))], env)
+        assert errs2 == [False], (texts2, errs2)
+        # qa and review pass with no checks
+        pathlib.Path(w, "c.py").write_text("x = 1\n")
+        _, texts3, errs3 = run([("advance", dict(flow="a", **DEV_PASS)),
+                                ("advance", dict(flow="a", verdict="pass", evidence="pytest\nok")),
+                                ("advance", dict(flow="a", verdict="pass"))], env)
+        assert errs3 == [False, False, False], (texts3, errs3)
+
+
+def test_om_ac15_tree_check_and_checks_gate_are_independent():
+    """An unchanged tree is refused even when checks are supplied — D3 did not
+    become optional by adding a second gate beside it."""
+    with tempfile.TemporaryDirectory() as d:
+        env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
+        with tempfile.TemporaryDirectory() as repo:
+            repo = os.path.realpath(repo)
+            git_init_with_commit(repo)
+            run([("flow_start", dict(slug="a", dir=repo)),
+                 ("advance", dict(flow="a", verdict="pass"))], env)   # entering dev records tree
+            _, texts, errs = run([("advance", dict(flow="a", **DEV_PASS))], env)
+            assert errs == [True], (texts, errs)
+            assert "unchanged since entering dev" in texts[0], texts[0]
+
+
+def test_om_ac17_back_requires_a_valid_kind_state_unchanged():
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as w:
+        env = {**os.environ, "MINI_VISE_STATE": os.path.join(d, "s.json")}
+        run([("flow_start", dict(slug="a", dir=w)),
+             ("advance", dict(flow="a", verdict="pass")),
+             ("advance", dict(flow="a", **DEV_PASS))], env)
+        before = json.dumps(state(env))
+        _, texts, errs = run([("back", dict(flow="a", to="dev", note="n")),
+                              ("back", dict(flow="a", to="dev", note="n", kind="oops"))], env)
+        assert errs == [True, True], (texts, errs)
+        for t in texts:
+            assert "mechanical" in t and "judgement" in t, t
+        assert json.dumps(state(env)) == before
+
+
+def test_om_ac18_log_carries_kind_and_note():
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as w:
+        path = os.path.join(d, "s.json")
+        env = {**os.environ, "MINI_VISE_STATE": path}
+        run([("flow_start", dict(slug="a", dir=w)),
+             ("advance", dict(flow="a", verdict="pass")),
+             ("advance", dict(flow="a", **DEV_PASS)),
+             ("back", dict(flow="a", to="dev", note="the finding text", kind="mechanical"))], env)
+        entries = [json.loads(l) for l in pathlib.Path(path).with_suffix(".log").read_text().splitlines()]
+        by_tool = {e["tool"]: e for e in entries}
+        assert by_tool["back"]["kind"] == "mechanical", by_tool["back"]
+        assert by_tool["back"]["note"] == "the finding text", by_tool["back"]
+        assert by_tool["flow_start"]["kind"] is None and by_tool["flow_start"]["note"] is None
+
+
+def test_om_ac21_ac22_short_circuit_bound_is_stated_and_rendered():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "s.json")
+        env = {**os.environ, "MINI_VISE_STATE": path}
+        # not spent: the last lap came from qa
+        write_state(path, {"a": raw_flow("dev", lap=2, history=[hist(2, "qa", "dev", "x")])})
+        _, t1, _ = run([("status", dict(flow="a"))], env)
+        assert "short-circuit spent" not in t1[0], t1[0]
+        # spent: the last lap was dev -> dev, so qa has seen nothing
+        write_state(path, {"b": raw_flow("dev", lap=2, history=[hist(2, "dev", "dev", "x")])})
+        _, t2, _ = run([("status", dict(flow="b"))], env)
+        assert "short-circuit spent" in t2[0], t2[0]
+        assert "advance to qa" in t2[0], t2[0]
+
+
+def test_om_ac19_dev_charter_separates_self_check_from_self_review():
+    t = pathlib.Path("plugin/agents/dev.md").read_text()
+    assert "do not review your own work" in t
+    assert "Self-review is forbidden" in t and "Self-check is mandatory" in t, \
+        "the gate reads as 'dev writes tests' unless both halves are stated together"
+    assert "not break what was there" in t
+    for f in ("dev", "qa", "reviewer"):
+        assert "effort: medium" in pathlib.Path(f"plugin/agents/{f}.md").read_text(), f
+
+
+def test_om_ac20_to_ac24_orchestration_skill_carries_the_new_rules():
+    t = pathlib.Path("plugin/skills/orchestration/SKILL.md").read_text()
+    # AC20 — authoring vs carrying, and the librarian test
+    assert "Authoring is forbidden. Carrying is mandatory." in t
+    assert "quoted verbatim" in t and "Librarian, not author" in t
+    assert "previous laps from `status`" in t
+    # AC21 — the short-circuit, its evidence limit and its bound
+    assert "without\nspawning `qa`" in t or "without spawning `qa`" in t.replace("\n", " ")
+    assert "Only on evidence the node itself produced" in t
+    assert "Once per entry to `dev`" in t
+    # AC23 — fifth advisor moment, subagents still have none
+    assert "when two nodes contradict each other" in t
+    assert "subagents still have no advisor" in t
+    # AC24 — convergence read, four-lap floor kept
+    assert "The same finding recurring" in t and "A different finding each lap" in t
+    assert "four or more" in t
+
+
+def test_om_ac28_readme_and_changelog_document_090():
+    rd, cl = pathlib.Path("README.md").read_text(), pathlib.Path("CHANGELOG.md").read_text()
+    assert "0.9.0" in cl, "CHANGELOG needs the 0.9.0 entry"
+    for probe in ("previous laps", "checks", "mechanical", "judgement"):
+        assert probe in rd, f"README does not document {probe!r}"
 
 
 def main():

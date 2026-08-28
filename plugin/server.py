@@ -17,9 +17,10 @@ import tempfile
 import time
 from pathlib import Path
 
-VERSION = "0.8.1"
+VERSION = "0.9.0"
 
 NODES = ["spec", "dev", "qa", "review"]
+LAP_KINDS = ("mechanical", "judgement")
 HUMAN = "spec"  # the node with no subagent — the orchestrator writes it, a person approves it
 DONE = "done"
 
@@ -29,7 +30,12 @@ LOG = STATE.with_suffix(".log")
 BLANK = {
     "node": NODES[0], "lap": 1, "note": None, "note_for": None,
     "spec_path": None, "evidence": None, "dir": None, "tree": None,
+    "checks": None, "history": [],
 }
+# `history` is the one mutable value in BLANK. Every construction site below
+# rebuilds it explicitly (A3a): `{**BLANK, ...}` copies the *reference*, so a
+# shared default would be one list object behind every flow and every read,
+# and an append on one flow would surface on another.
 
 
 def read() -> dict:
@@ -58,7 +64,12 @@ def read() -> dict:
         # the whole file
         if not isinstance(s, dict) or s.get("node") not in [*NODES, DONE]:
             continue
-        out[slug] = {**BLANK, **s, "lap": int(s.get("lap", 1))}
+        merged = {**BLANK, **s, "lap": int(s.get("lap", 1))}
+        h = s.get("history")
+        # fresh list every read, and a malformed entry is dropped rather than
+        # preserved — same trade-off the flow-level guard above makes
+        merged["history"] = [e for e in h if isinstance(e, dict)] if isinstance(h, list) else []
+        out[slug] = merged
     return out
 
 
@@ -68,6 +79,17 @@ def write(flows: dict) -> None:
 
 def open_flows(flows: dict) -> dict:
     return {slug: s for slug, s in flows.items() if s["node"] != DONE}
+
+
+PRIOR_LAPS_SHOWN = 3
+
+
+def short_circuit_spent(s: dict) -> bool:
+    """True when this entry to `dev` has already used its one short-circuit
+    (D3) — the last thing that happened was dev being sent straight back to
+    dev without qa seeing anything."""
+    h = s.get("history") or []
+    return bool(h) and h[-1].get("from") == "dev" and h[-1].get("to") == "dev"
 
 
 def render(slug: str, s: dict) -> str:
@@ -91,10 +113,36 @@ def render(slug: str, s: dict) -> str:
         out.append(f"dir: {s['dir']}")
     if s.get("spec_path"):
         out.append(f"spec: {s['spec_path']}")
+    if node == "qa" and s.get("checks"):
+        # C3: qa re-running what dev already ran is the duplicated load the
+        # checks gate exists to remove
+        out.append(f"dev checks:\n{s['checks']}")
     if node == "review" and s.get("evidence"):
         out.append(f"qa evidence:\n{s['evidence']}")
+    # B1: laps strictly before this one. Not "all but the last" — a finding
+    # closed by `advance` leaves `note` cleared and its history entry behind,
+    # and that entry still has to render on the next lap.
+    prior = [e for e in s.get("history", []) if isinstance(e.get("lap"), int) and e["lap"] < lap]
+    if prior:
+        shown = prior[-PRIOR_LAPS_SHOWN:]
+        block = ["previous laps on this flow — already tried, do not repeat:"]
+        block += [
+            f"  lap {e.get('lap')} [{e.get('from')}->{e.get('to')}, {e.get('kind')}] {e.get('note')}"
+            for e in shown
+        ]
+        if len(prior) > len(shown):
+            # bounded on purpose: this text is re-emitted on every `status`,
+            # every Stop-hook fire and every SessionStart
+            block.append(f"  ({len(prior) - len(shown)} earlier laps not shown — full history in {STATE})")
+        out.append("\n".join(block))
     if s.get("note") and s.get("note_for") == node:
         out.append(f"open finding to fix here:\n{s['note']}")
+    if node == "dev" and short_circuit_spent(s):
+        out.append(
+            "short-circuit spent for this entry to dev — the next move out of dev is "
+            "advance to qa, not another back(to='dev'). Two dev laps with no qa between "
+            "them give dev the orchestrator's opinion twice and no independent signal."
+        )
     out.append(
         f"next: {nxt}. Call advance(flow={slug!r}, ...) with the node's verdict — pass moves "
         f"on, fail stays put so you can send it back."
@@ -138,12 +186,19 @@ def tree_hash(d) -> str | None:
     return hashlib.sha256((status.stdout + head_out).encode()).hexdigest()
 
 
-def log_call(tool: str, flow: str, s: dict, verdict: str | None) -> None:
+def log_call(tool: str, flow: str, s: dict, verdict: str | None,
+             kind: str | None = None, note: str | None = None) -> None:
     """Append one JSONL line for a successful mutating call. Never raises —
-    the log is a record, not a dependency (D2)."""
+    the log is a record, not a dependency (D2).
+
+    Carries the finding text and its classification (E2). `history` holds the
+    same facts but dies with the flow: `flow_close` deletes it and `reset`
+    clears it. The log is append-only and survives both, which is the shape a
+    per-repo record of findings needs."""
     entry = {
         "ts": time.time(), "flow": flow, "tool": tool,
         "node": s["node"], "lap": s["lap"], "verdict": verdict,
+        "kind": kind, "note": note,
     }
     try:
         with open(LOG, "a") as f:
@@ -314,6 +369,15 @@ TOOLS = [
                     "type": "string",
                     "description": "Command run + its real output, verbatim. Required for verdict='pass' at node `qa`.",
                 },
+                "checks": {
+                    "type": "string",
+                    "description": (
+                        "Command run + its real output, verbatim. Required for verdict='pass' at "
+                        "node `dev`. Pre-existing checks only — the repo's lint, types, and the "
+                        "tests that already passed — proving dev did not break what was there. "
+                        "New tests are qa's node. Shown to qa so it does not re-run them."
+                    ),
+                },
             },
             "required": ["flow", "verdict"],
         },
@@ -325,7 +389,10 @@ TOOLS = [
             "Use after a fail: a failing test at qa, a blocking finding at review. `to` is "
             "required — pick the node that owns it, which for a code finding at review is "
             "dev, not qa. The note is stored and shown to that node in `status`, so the "
-            "finding survives a compaction or a fresh session."
+            "finding survives a compaction or a fresh session. `kind` says whether a gate "
+            "should have caught this (mechanical) or the work was genuinely contested "
+            "(judgement) — the two answer different questions and only one is meant to "
+            "trend to zero."
         ),
         "inputSchema": {
             "type": "object",
@@ -336,8 +403,19 @@ TOOLS = [
                     "type": "string",
                     "description": "What that node has to fix, specific enough to act on without re-reading the review.",
                 },
+                "kind": {
+                    "type": "string",
+                    "enum": list(LAP_KINDS),
+                    "description": (
+                        "mechanical: a gate should have caught it — a failing check, a broken "
+                        "import, a lint error, a test that was already red. Debt; should trend to "
+                        "zero as gates improve. judgement: the work was genuinely contested — a "
+                        "design disagreement, a requirement nobody decided, a real bug found by "
+                        "reading. The pipeline working; should not trend to zero."
+                    ),
+                },
             },
-            "required": ["flow", "to", "note"],
+            "required": ["flow", "to", "note", "kind"],
         },
     },
     {
@@ -387,7 +465,7 @@ def call(name: str, args: dict) -> str:
                     f"flows in one working tree make a diff unattributable to a reviewer. Use a "
                     f"different dir (e.g. a git worktree), or wait until {other_slug!r} is done."
                 )
-        flows[slug] = {**BLANK, "dir": d}
+        flows[slug] = {**BLANK, "history": [], "dir": d}
         write(flows)
         log_call("flow_start", slug, flows[slug], None)
         snapshot("flow_start", slug, flows[slug])
@@ -422,7 +500,7 @@ def call(name: str, args: dict) -> str:
         return f"[flow: {flow}] closed — was at node: {node}. Slug and dir are free for a new flow_start."
 
     if name == "reset":
-        flows[flow] = dict(BLANK, dir=s.get("dir"))
+        flows[flow] = dict(BLANK, history=[], dir=s.get("dir"))
         write(flows)
         log_call("reset", flow, flows[flow], None)
         snapshot("reset", flow, flows[flow])
@@ -447,6 +525,18 @@ def call(name: str, args: dict) -> str:
         evidence = args.get("evidence")
         if node == "qa" and not (evidence and evidence.strip()):
             raise ValueError("advance needs evidence at node 'qa' — command run + its real output, verbatim")
+        checks = args.get("checks")
+        if node == "dev" and not (checks and checks.strip()):
+            # C1: same shape as the qa evidence gate — it refuses the empty, it
+            # does not judge the content. mini-vise is language-agnostic and
+            # stdlib-only; it cannot lint an arbitrary repo, so it requires that
+            # dev ran the repo's own checks rather than running them itself.
+            raise ValueError(
+                "advance needs checks at node 'dev' — the command you ran and its real "
+                "output, verbatim. Pre-existing checks only (lint, types, the tests that "
+                "already passed): proving you did not break what was there. Writing new "
+                "tests is qa's node, not dev's."
+            )
         if node == "dev":
             # D3: the one honesty check that is mechanical rather than another
             # agent. Degrades silent-open (never blocks) when either side is
@@ -467,6 +557,8 @@ def call(name: str, args: dict) -> str:
             s["spec_path"] = args["spec_path"]
         if node == "qa":
             s["evidence"] = evidence
+        if node == "dev":
+            s["checks"] = checks
         if nxt == "dev":  # entering dev — record the baseline D3 compares against
             s["tree"] = tree_hash(s.get("dir"))
         write(flows)
@@ -484,18 +576,39 @@ def call(name: str, args: dict) -> str:
 
     if name == "back":
         to, note = args.get("to"), (args.get("note") or "").strip()
+        kind = args.get("kind")
         if to not in NODES:
             raise ValueError(f"back needs to=one of {', '.join(NODES)} — got {to!r}")
         if not note:
             raise ValueError("back needs a note saying what that node has to fix")
+        if kind not in LAP_KINDS:
+            # E1: required rather than defaulted. A guessed classification is
+            # worse than none, because it reads as data.
+            raise ValueError(
+                f"back needs kind=one of {', '.join(LAP_KINDS)} — got {kind!r}. "
+                "mechanical: a gate should have caught it (a failing check, a broken "
+                "import, a lint error, a test that was already red) — debt, and it should "
+                "trend to zero. judgement: the work was genuinely contested (a design "
+                "disagreement, a requirement nobody decided, a real bug found by reading) "
+                "— the pipeline working, and it should not."
+            )
         # ponytail: a lap is any backward move, so the count is "times something
         # was sent back", not laps of the whole pipeline. Close enough to spot a
         # ping-pong; make it exact if anyone ever needs it to be.
         s.update(node=to, lap=s["lap"] + 1, note=f"[from {node}] {note}", note_for=to)
+        # A2: appended after the increment, so the entry's lap is the new one.
+        # Every entry therefore has a unique lap, and the finding currently open
+        # is always the entry whose lap == s["lap"] — which is what lets render()
+        # show prior laps without repeating it. Stored without the
+        # "[from <node>] " prefix: `from` is already a key of its own.
+        s["history"] = [
+            *s.get("history", []),
+            {"lap": s["lap"], "from": node, "to": to, "note": note, "kind": kind},
+        ]
         if to == "dev":  # re-entering dev — re-record the baseline D3 compares against
             s["tree"] = tree_hash(s.get("dir"))
         write(flows)
-        log_call("back", flow, s, None)
+        log_call("back", flow, s, None, kind=kind, note=note)
         snapshot("back", flow, s)
         return render(flow, s)
 

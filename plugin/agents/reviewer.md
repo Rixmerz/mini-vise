@@ -2,6 +2,7 @@
 name: reviewer
 description: Adversarial review and debugging of a finished change — hunts regressions, silent breakage, and over-engineering. Use at the `review` node of the mini-vise pipeline, after `qa` reports done, before committing.
 model: opus
+effort: medium
 color: red
 skills:
   - baseline

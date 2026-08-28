@@ -1,5 +1,91 @@
 # Changelog
 
+## 0.9.0 — laps get memory, a gate, a shortcut and a classification
+
+Four observations that turned out to be one axis, so they ship as one version
+rather than three that edit the same functions. A lap is `dev` + `qa` +
+`review` plus a Stop-hook re-entry of the orchestrator, already about two
+thirds of a run's spend — every item here exists to make laps cheaper or fewer.
+
+The axis: **mechanical where a program can decide, judgement where it cannot,
+and the two never wear each other's clothes.** The `dev` tree check from 0.7.0
+was already this.
+
+- **The pipeline no longer forgets between laps.** `back` overwrote a single
+  `note` field and `advance` cleared it, so the `dev` spawned at lap 3 could
+  not know it had already failed twice, and could re-propose exactly what was
+  rejected at lap 1. Every `back` now appends `{lap, from, to, note, kind}` to
+  an append-only `history` on the flow record, and `render()` shows the laps
+  before this one — the three most recent, then a count of the rest, because
+  that text is re-emitted on every `status`, every Stop-hook fire and every
+  SessionStart. It lives in state rather than in the orchestrator's context
+  because both hooks re-inject `render()` and nothing else; memory held in
+  context dies on the first compaction, the failure `PreCompact` was deleted
+  for in 0.7.0.
+- **`advance(verdict="pass")` at `dev` now requires `checks`** — the command
+  run and its real output, verbatim. Same shape as the `qa` evidence gate, and
+  it refuses the empty rather than judging the content. mini-vise does not run
+  the checks: it is language-agnostic and stdlib-only and cannot lint an
+  arbitrary repo, so it requires the evidence and lets `baseline` point `dev`
+  at the toolchain the repo declares. Until now the only gate at `dev` was the
+  tree check, which proves the tree moved and nothing else — so a broken import
+  cost a full lap to discover at `qa`. Both gates apply independently: an
+  unchanged tree is still refused even with `checks` supplied. The stored
+  `checks` are shown to `qa`, which is the duplicated load this removes.
+  **Breaking:** a flow already sitting at `dev` will have its next `advance`
+  refused until `checks` is supplied — the same break the `qa` evidence gate
+  made when it was added.
+- **`dev`'s charter now states both halves of the rule**, because the gate
+  reads as "dev writes tests" without them. Self-*review* stays forbidden —
+  *is this good, does it meet the spec, is the design right* is judgement, and
+  belongs to `qa` and `reviewer`. Self-*check* becomes mandatory — *does it
+  parse, import, lint, are the already-passing tests still passing* is
+  mechanical, and skipping it is not independence. `dev` proves it did not
+  break what was there; `qa` proves the new behaviour is correct.
+- **The orchestrator may send `dev` back on dev's own reported failure without
+  spawning `qa`.** It is already a mandatory hop on every `back` — a subagent
+  returns to its parent and cannot call another subagent — so spawning `qa` to
+  be told what dev's output already said is a node paid for nothing. Bounded
+  two ways, both in the charter: only on evidence a node itself produced, never
+  the orchestrator's own reading of a diff it did not open; and once per entry
+  to `dev`, since two dev laps with no `qa` between them give `dev` the
+  orchestrator's opinion twice and no independent signal. `status` says when
+  the short-circuit is spent.
+- **`back` now requires `kind`** — `mechanical` (a gate should have caught it:
+  a failing check, a broken import, a lint error, an already-red test) or
+  `judgement` (the work was genuinely contested). Required rather than
+  defaulted, because a guessed classification reads as data and is worse than
+  none. Only one of the two series is meant to fall, and until now they were
+  the same object in state and in the log — which made "is any of this
+  helping?" unanswerable, for these gates, for an effort change, or for any
+  rule anyone adds.
+- **The run log carries the finding text and its `kind`.** `history` is cleared
+  by `reset` and deleted by `flow_close`; `.mini-vise.log` is append-only and
+  survives both, which is the shape a per-repo record of findings needs. A
+  cross-repo one is deliberately not here: it needs a home outside the working
+  directory (`.mini-vise.json` and `.mini-vise.log` are per-directory and
+  gitignored, so both die with the repo) and a decision to store the shape of a
+  finding rather than verbatim code, since it would accrue findings from every
+  repo its owner touches.
+- **`orchestration` separates authoring from carrying.** It said the open
+  finding *is* the brief, do not invent your own — right against freelancing
+  and wrong against history, since as written it forbade carrying anything
+  forward. Authoring is forbidden, carrying is mandatory, with a mechanical
+  test: everything the orchestrator adds to a brief is quoted verbatim from a
+  node's own report. Librarian, not author. Also a fifth `advisor()` moment
+  (two nodes contradicting each other — only the orchestrator holds both
+  reports) and a §5 that reads convergence instead of counting it: the same
+  finding recurring means the brief is wrong, a different finding each lap
+  means the spec is underspecified and belongs at `spec`.
+- **`effort: medium` is pinned on all three charters.** The model/effort
+  research in the README was measured at `medium`, but no charter declared an
+  `effort` field, so all three inherited whatever the invoking session was set
+  to and the documented configuration was not reproducible. No new claim —
+  `xhigh` and `max` were never measured, and that sweep has to count laps to
+  `done` rather than cost per run.
+
+Spec: `docs/orchestrator-memory.md`.
+
 ## 0.8.1 — snapshots never ran where they were needed most
 
 CI has been red since it was added in 0.7.0 — all four runs, `main` included.

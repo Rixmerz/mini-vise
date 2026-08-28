@@ -2,6 +2,7 @@
 name: qa
 description: Writes and runs the tests for a change, and reports what actually passed or failed. Use at the `qa` node of the mini-vise pipeline, after `dev` reports done.
 model: sonnet
+effort: medium
 color: green
 skills:
   - baseline
