@@ -10,8 +10,8 @@ each start with a clean context by design (`orchestration` SKILL §intro) — so
 the orchestrator is the only actor that has seen lap 1 *and* lap 2 *and* lap 3.
 Today it discards that:
 
-- `server.py:479` — `back` does `s.update(note=...)`. Single field, overwritten.
-- `server.py:450` — `advance` does `note=None`. Cleared.
+- `server.py:494` — `back` does `s.update(note=...)`. Single field, overwritten.
+- `server.py:465` — `advance` does `note=None`. Cleared.
 - `.mini-vise.log` records the sequence (`ts, flow, tool, node, lap, verdict`)
   but not the finding text, and nothing reads it back.
 
@@ -58,7 +58,7 @@ lap, and the currently-open finding is always the entry whose `lap` equals
 closed is exactly when it becomes worth remembering.
 
 **A3. `reset` clears it, `flow_close` discards it with the flow**
-`reset` already rebuilds the record from `BLANK` (`server.py:410`) and lands at
+`reset` already rebuilds the record from `BLANK` (`server.py:425`) and lands at
 `spec`, whose job is to write a new proposal — carrying findings from a spec
 that no longer exists would be stale. No code change needed at `reset` beyond
 A1 landing in `BLANK`; state it as a guarded behavior.
