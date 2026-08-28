@@ -1571,6 +1571,45 @@ def test_om_ac28_readme_and_changelog_document_090():
         assert probe in rd, f"README does not document {probe!r}"
 
 
+# --- 0.10.0: run the product, the applicability gate, the observable AC ---
+
+
+def test_rp_ac1_run_command_gates_on_task_shape():
+    t = pathlib.Path("plugin/commands/run.md").read_text()
+    assert "check the task is worth a pipeline" in t.lower()
+    # the shape that produced this version: risk in the spec, not the code
+    assert "not in building it" in t
+    assert "exploratory" in t and "packaging" in t
+
+
+def test_rp_ac2_orchestrator_runs_the_product():
+    t = pathlib.Path("plugin/skills/orchestration/SKILL.md").read_text()
+    assert "## 4. Run it yourself" in t
+    assert "No node can do this for you." in t
+    # the carve-out that makes it legal next to "authoring is forbidden"
+    assert "you may produce evidence by running the" in t
+    assert "Reading produces hunches, running produces" in t
+    # the early run, so a wrong spec is not paid for three times
+    assert "as soon as `dev` reports something runnable" in t
+
+
+def test_rp_ac3_spec_needs_one_observable_criterion():
+    t = pathlib.Path("plugin/skills/orchestration/SKILL.md").read_text()
+    assert "an output a user can see" in t
+    assert "not a state the\nsystem reports" in t.replace("\r", "")
+
+
+def test_rp_ac4_version_is_consistent_and_documented():
+    import json, re
+    v = re.search(r'VERSION = "([^"]+)"',
+                  pathlib.Path("plugin/server.py").read_text()).group(1)
+    assert v == json.loads(
+        pathlib.Path("plugin/.claude-plugin/plugin.json").read_text())["version"]
+    mk = json.loads(pathlib.Path(".claude-plugin/marketplace.json").read_text())
+    assert v in json.dumps(mk), "marketplace.json version out of step"
+    assert f"## {v}" in pathlib.Path("CHANGELOG.md").read_text(), "CHANGELOG needs the entry"
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

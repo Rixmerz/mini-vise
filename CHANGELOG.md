@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — the pipeline learns to use the product
+## 0.10.0 — the pipeline learns to use the product
 
 Three markdown edits, no `server.py` change, all from one run's retro: a
 packaging task took 4 laps, 9 subagent runs and ~436k tokens, three nodes

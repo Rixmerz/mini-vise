@@ -17,7 +17,7 @@ import tempfile
 import time
 from pathlib import Path
 
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 
 NODES = ["spec", "dev", "qa", "review"]
 LAP_KINDS = ("mechanical", "judgement")

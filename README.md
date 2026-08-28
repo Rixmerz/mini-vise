@@ -19,6 +19,18 @@ a failing test at `qa`, a blocking finding at `review` — `back` returns there
 and the lap counter goes up. Nothing reaches `done` for good until a lap
 gets through without a `back`.
 
+Two duties are the orchestrator's alone, because no node can do them. It
+**runs the product** before `done` and again as soon as `dev` has something
+runnable: `dev`, `qa` and `reviewer` hold `Bash` and the file tools, while the
+main loop holds the MCP servers and the real environment, so a subagent asked
+to verify a tool it cannot invoke will verify that the code parses and report
+that honestly as a pass. And it **checks the task deserves a pipeline at all**
+— `/mini-vise:run` names the shapes this is bad at, of which the worst is the
+task whose risk lives in deciding what to build rather than in building it.
+Every node validates conformance to the acceptance criteria and nothing else,
+so a criterion phrased as *the system answered* buys a rigorous `done` on a
+product that lies. At least one criterion has to name an output a user can see.
+
 ## Agents
 
 | Agent | Does | Doesn't | Skills | Model | Effort |
