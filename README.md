@@ -21,12 +21,18 @@ gets through without a `back`.
 
 ## Agents
 
-| Agent | Does | Doesn't | Skills | Model |
-|---|---|---|---|---|
-| — | *`spec` has no agent: the orchestrator writes it, a human approves it* | | `orchestration` | — |
-| `dev` | writes the code | write tests, review itself | `baseline`, `implementing` | sonnet |
-| `qa` | writes and runs tests, reports real output | edit product code to go green | `baseline`, `testing` | sonnet |
-| `reviewer` | adversarial review + debugging, read-only | fix anything | `baseline`, `reviewing` | opus |
+| Agent | Does | Doesn't | Skills | Model | Effort |
+|---|---|---|---|---|---|
+| — | *`spec` has no agent: the orchestrator writes it, a human approves it* | | `orchestration` | — | — |
+| `dev` | writes the code, runs the repo's existing checks | write tests, review itself | `baseline`, `implementing` | sonnet | medium |
+| `qa` | writes and runs tests, reports real output | edit product code to go green | `baseline`, `testing` | sonnet | medium |
+| `reviewer` | adversarial review + debugging, read-only | fix anything | `baseline`, `reviewing` | opus | medium |
+
+`effort` is pinned because the numbers below were measured at `medium`, and a
+charter that declares no effort inherits whatever the invoking session is set
+to — which makes the recommendation unreproducible. `xhigh` and `max` exist and
+were never measured; the sweep that would settle them has to count laps to
+`done`, not cost per run.
 
 `baseline` is the shared precedence rule and the language-agnostic standards.
 The role skill on top carries what that node actually has to get right —
@@ -103,9 +109,10 @@ The MCP server exposes exactly enough to walk the pipeline:
 - `status` — which node a flow is on, which lap, and any open finding sent here
   to fix. Omit `flow` to see every open flow at once.
 - `advance` — takes a `flow` and the node's `verdict`. `pass` moves on; `fail`
-  **stays put**
+  **stays put**. A pass at `qa` needs `evidence`; a pass at `dev` needs
+  `checks`
 - `back` — takes a `flow`, routes the fix to the node that owns it, carrying a
-  `note` of what to fix
+  `note` of what to fix and a `kind` saying which sort of lap it is
 - `reset` — takes a `flow`, back to `spec`, lap and findings cleared
 - `flow_close` — takes a `flow`, removes it entirely; the slug and its `dir`
   are free for a new `flow_start`. Works on any flow, open or done.
@@ -121,6 +128,50 @@ model picking the pipeline up.
 `fail` does not route on its own. It stops and makes you call `back(to=...)`,
 because the node that owns a fix is a judgement: a code finding at `review`
 belongs to `dev`, not to the node just behind it.
+
+## What a lap costs, and the four things that make it cost more
+
+A lap is `dev` + `qa` + `review` plus a Stop-hook re-entry of the orchestrator,
+which is already about two thirds of a run's spend. Everything in this section
+is the same rule applied in four places: **mechanical where a program can
+decide, judgement where it cannot, and the two never wear each other's
+clothes.** The `dev` tree check below was already this.
+
+**The pipeline used to forget between laps.** `back` overwrote a single `note`
+and `advance` cleared it, so the `dev` at lap 3 could re-propose exactly what
+lap 1 rejected. Every `back` now appends to a `history` on the flow, and
+`status` renders a `previous laps on this flow — already tried, do not repeat:`
+block ahead of the open finding — the three most recent, then a count of the
+rest, because that text is re-emitted on every `status`, every Stop-hook fire
+and every SessionStart. It lives in state rather than in the orchestrator's head
+because both hooks re-inject `status` output and nothing else: memory held in
+context dies on the first compaction.
+
+**`dev` has to prove the code runs.** `advance(verdict="pass")` at `dev` needs
+`checks` — the command run and its real output, the same shape `qa` has needed
+for `evidence` since 0.6.0. mini-vise does not run them: it is language-agnostic
+and stdlib-only and cannot lint an arbitrary repo, so it requires the evidence
+instead, and `baseline` already points `dev` at whatever toolchain the repo
+declares. The line that keeps the nodes apart is in `dev`'s charter:
+self-*review* stays forbidden, self-*check* becomes mandatory. `dev` proves it
+did not break what was there; `qa` proves the new behaviour is correct.
+
+**A finding `dev` already had the evidence for no longer costs a `qa` spawn.**
+When dev's own `checks` show a failure the orchestrator sends it straight back,
+bounded two ways: only on evidence a node itself produced — never the
+orchestrator's reading of a diff it did not open — and once per entry to `dev`,
+because two dev laps with no `qa` between them give `dev` the orchestrator's
+opinion twice and no independent signal.
+
+**Every `back` says which sort of lap it is.** `kind="mechanical"` means a gate
+should have caught it — a failing check, a broken import, a lint error. That is
+debt, and it should trend to zero as the gates improve. `kind="judgement"` means
+the work was genuinely contested. That is the pipeline working, and it should
+not. Both land in `.mini-vise.log` alongside the finding text, so the record
+outlives the flow that produced it — `history` is cleared by `reset` and deleted
+by `flow_close`, the log is append-only and survives both. Without the split,
+"is any of this helping?" has no answer: for these gates, for an effort change,
+or for any rule anyone ever adds.
 
 ## The loop closes itself
 
@@ -168,7 +219,8 @@ outbound channel is `systemMessage` ("a message to the user"), which can't
 inject into what a summarizer keeps, so it never did what it claimed to.
 
 Every successful `flow_start`/`advance`/`back`/`reset`/`flow_close` call
-appends one line to `.mini-vise.log` (`status` doesn't) — a run record, not a
+appends one line to `.mini-vise.log` (`status` doesn't) — carrying the finding
+text and its `kind` where there is one — a run record, not a
 dependency: a write failure there never fails the tool call.
 
 The same five calls also snapshot the flow's `dir`: a commit at

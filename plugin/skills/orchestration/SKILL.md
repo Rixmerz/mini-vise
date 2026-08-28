@@ -111,13 +111,27 @@ lap. Only then call `advance(verdict="pass")`.
 
 ## 2. Delegate each node
 
-Call `status` first, every time. It tells you the node, the lap, and any open
-finding sent there — that finding *is* the brief; do not invent your own.
+Call `status` first, every time. It tells you the node, the lap, any open
+finding sent there, and the laps before this one.
+
+**Authoring is forbidden. Carrying is mandatory.** You never write a claim
+about the code — you did not read the diff, and a claim you invent outranks
+the reviewer's because you hold the routing. But you are the only actor that
+has seen every lap: `dev`, `qa` and `reviewer` each start with a clean context,
+so a finding you drop is a finding nobody has. Carrying it forward is not
+inventing a brief, it is refusing to lose one.
+
+The test is mechanical: **everything you add to a brief is quoted verbatim
+from a node's own report.** Librarian, not author. If you cannot point at the
+report a line came from, it does not go in.
 
 Brief the subagent with:
 - the task, in one paragraph;
 - **the path to the spec**, so it reads the criteria rather than guessing them;
 - the open finding from `status`, verbatim, if there is one;
+- **the previous laps from `status`, verbatim, when the lap count is above 1** —
+  a `dev` at lap 3 that is not told what laps 1 and 2 rejected can re-propose
+  exactly what was already thrown out;
 - **the flow slug**, so its report's required `flow: <slug>` first line names
   the right flow instead of being omitted or invented;
 - nothing about how to do its job. The charter and its skills cover that.
@@ -153,6 +167,24 @@ go away; it moves it to whoever runs this code next.
 Never edit the code yourself to make a node pass. If `dev` got it wrong, `dev`
 does it again with a better brief.
 
+**When `dev`'s own `checks` output shows a failure, send it back without
+spawning `qa`.** `advance(verdict="fail")`, then `back(to="dev", ...)`. You are
+already in the path; spawning `qa` to be told what dev's own output already
+said is a whole node paid for nothing.
+
+Two limits, and neither is optional:
+
+- **Only on evidence the node itself produced** — a `verdict:` line, a failing
+  command in its `checks`. Never on your own reading of the diff. If `dev`
+  reports green and you have a hunch, you spawn `qa`. The hunch is not
+  evidence, and acting on it is you reviewing code you did not read.
+- **Once per entry to `dev`.** After one `dev -> dev`, the next move out of
+  `dev` is `advance` to `qa`. Two dev laps with no `qa` between them are worse
+  than the `qa` spawn you saved: `dev` gets your opinion twice and no
+  independent signal, which is a ping-pong with no external check — the exact
+  failure the separation of nodes exists to prevent. `status` tells you when
+  the short-circuit is already spent.
+
 ## 4. Route what comes back
 
 `fail` stops the pipeline but does not choose where the work goes — that is a
@@ -173,6 +205,25 @@ finding is a code bug or a requirement nobody decided — the choice between
 `dev` and `spec` is a judgement worth a second look before it costs a lap.
 Main-loop tool, same as above; subagents still have no advisor.
 
+**Call `advisor()` when two nodes contradict each other** — `qa` asserts
+something `reviewer` says is wrong. Neither can see the other's report; you
+hold both, so nobody else can even notice. That is not a `dev` bug, and routing
+it to `dev` produces a lap that cannot converge, because `dev` would have to
+guess which node to believe.
+
+`back` requires a `kind`, and it is not a formality:
+
+- **`mechanical`** — a gate should have caught it: a failing check, a broken
+  import, a lint error, a test that was already red. This is debt. It should
+  trend to zero as the gates improve, and a run full of these means the gates
+  are wrong, not that the model is bad.
+- **`judgement`** — the work was genuinely contested: a design disagreement, a
+  requirement nobody decided, a real bug found by reading. This is the pipeline
+  working as designed. It should **not** trend to zero.
+
+Classify honestly. The two series answer different questions, and only one of
+them is supposed to fall — mislabel them and neither answers anything.
+
 `back` requires a `note`. Write it so the receiving node can act without
 re-reading the review: what breaks, under what input, and what correct looks
 like. It is stored in the state file and shown to that node by `status`, so it
@@ -180,9 +231,16 @@ survives a compaction, a new session, and a different model picking this up.
 
 ## 5. Know when you are stuck
 
-`status` shows a lap count. Every `back` raises it. Two laps is normal work;
-**four or more on the same finding means the loop is not converging** — the
-brief is wrong, the spec is ambiguous, or the task is bigger than it looked.
+`status` shows a lap count and the laps behind it. Every `back` raises the
+count, but the count alone carries two opposite diagnoses — read the history,
+not the number:
+
+- **The same finding recurring** — the brief is wrong, or the node cannot fix
+  it from where it sits. Sending it back again with the same note buys nothing.
+- **A different finding each lap** — the spec is underspecified. That is a
+  `back(to="spec")` to go ask the user, not another `dev` lap.
+
+Two laps is normal work; **four or more means the loop is not converging.**
 Stop and tell the user what is happening instead of spending another lap.
 
 Nothing verifies that a node told the truth. `qa` can report a pass on a suite

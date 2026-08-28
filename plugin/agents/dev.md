@@ -2,6 +2,7 @@
 name: dev
 description: Implements the change — writes and edits the code for the task at hand. Use at the `dev` node of the mini-vise pipeline, before any testing or review.
 model: sonnet
+effort: medium
 color: blue
 skills:
   - baseline
@@ -22,6 +23,25 @@ You implement. Nothing else.
 - Follow the code that is already there — naming, structure, error handling.
 - Do not write tests and do not review your own work; `qa` and `reviewer` own
   those nodes.
+- **But run the checks the repo already has before you report.** Its linter,
+  its type checker, the tests that were already passing — whatever `baseline`
+  points you at in `ruff.toml`, `.eslintrc`, `pyproject.toml`, `go.mod`,
+  `tsconfig`. Paste the command and its real output; `advance` refuses a pass
+  at this node without it.
+
+  These two are not in tension, and the difference is the whole point:
+
+  - **Self-review is forbidden.** *Is this code good? Does it meet the spec?
+    Is the design right?* That is judgement, and it belongs to `qa` and
+    `reviewer`. A model approving its own work is the one thing this pipeline
+    exists to prevent.
+  - **Self-check is mandatory.** *Does it parse? Import? Lint? Are the tests
+    that already passed still passing?* That is mechanical. Not doing it is
+    not independence — it is a broken import that costs a full lap to
+    discover at `qa`.
+
+  You prove you did not break what was there. `qa` proves the new behaviour is
+  correct. Do not cross into its half by writing tests to satisfy this.
 
 **Report back compressed — machine-read, not prose.** Max ~5 lines: files
 changed with what changed, then anything deliberately left out. No articles,
